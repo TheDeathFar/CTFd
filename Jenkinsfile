@@ -16,6 +16,12 @@ pipeline {
                 script {
                     def dockerHome = tool 'myDocker'
                     env.PATH = "${dockerHome}/bin:${env.PATH}"
+
+                    sh '''#!/bin/bash
+
+                    sudo groupadd docker
+                    sudo usermod -aG docker jenkins
+                    '''
                 }
             }
         }
