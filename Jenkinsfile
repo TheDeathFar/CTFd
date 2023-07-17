@@ -51,7 +51,7 @@ pipeline {
         stage('Deploying ctfd container to Kubernetes') {
             steps {
                 script {
-                    kubernetesDeploy(configs: 'deployment.yaml', 'service.yaml', 'ingress.yaml')
+                    sh 'kubectl apply -f  deployment'
                 }
             }
         }
