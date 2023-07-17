@@ -30,7 +30,7 @@ spec:
         - name: LOG_FOLDER
           value: /data/nfs
         - name: REVERSE_PROXY
-          value: true
+          value: 'true'
         - name: UPLOAD_FOLDER
           value: /data/nfs
         - name: WORKERS

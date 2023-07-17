@@ -6,6 +6,14 @@ pipeline {
         kind: Pod
         spec:
           containers:
+          - name: kubectl
+            image: smesch/kubectl
+            command:
+            - cat
+            tty: true
+            volumeMounts:
+             - mountPath: /root/.kube
+               name: kube-config
           - name: docker
             image: docker:latest
             command:
@@ -18,6 +26,9 @@ pipeline {
           - name: docker-sock
             hostPath:
               path: /var/run/docker.sock
+          - name: kube-config
+            hostPath:
+              path: /tmp
         '''
         }
     }
@@ -51,7 +62,9 @@ pipeline {
         stage('Deploying ctfd container to Kubernetes') {
             steps {
                 script {
-                    sh 'kubectl apply -f  deployment'
+                    container('kubectl') {
+                        sh 'kubectl apply -f deployment --validate=false'
+                    }
                 }
             }
         }
