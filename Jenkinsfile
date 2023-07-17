@@ -1,38 +1,54 @@
 pipeline {
-    environment {
-        dockerimagename = 'deathfar/ctfd-app'
-        dockerImage = ''
+    agent {
+        kubernetes {
+            yaml '''
+        apiVersion: v1
+        kind: Pod
+        spec:
+          containers:
+          - name: docker
+            image: docker:latest
+            command:
+            - cat
+            tty: true
+            volumeMounts:
+             - mountPath: /var/run/docker.sock
+               name: docker-sock
+          volumes:
+          - name: docker-sock
+            hostPath:
+              path: /var/run/docker.sock
+        '''
+        }
     }
-    agent any
     stages {
         stage('Checkout Source') {
             steps {
                 git 'https://github.com/TheDeathFar/CTFd'
             }
         }
-
         stage('Build image') {
             steps {
                 script {
-                    dockerImage = docker.build dockerimagename
-                }
-            }
-        }
-
-        stage('Pushing Image') {
-            environment {
-                registryCredential = 'dockerhub-credentials'
-            }
-            steps {
-                script {
-                    docker.withRegistry('https://registry.hub.docker.com', registryCredential) {
-                        dockerImage.push('latest')
+                    container('docker') {
+                        sh 'docker build -t deathfar/ctfd-app .'
                     }
                 }
             }
         }
-
-        stage('Deploying container to Kubernetes') {
+        stage('Push image to Hub'){
+            steps {
+                script {
+                    container('docker') {
+                        withCredentials([string(credentialsId: 'dockerhub-pwd', variable: 'dockerhubpwd')]) {
+                            sh 'docker login -u deathfar -p ${dockerhubpwd}'
+                        }
+                        sh 'docker push deathfar/ctfd-app'
+                    }
+                }
+            }
+        }
+        stage('Deploying ctfd container to Kubernetes') {
             steps {
                 script {
                     kubernetesDeploy(configs: 'deployment.yaml', 'service.yaml', 'ingress.yaml')
