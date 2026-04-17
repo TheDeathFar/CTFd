@@ -2,6 +2,7 @@ from flask_babel import lazy_gettext as _l
 from wtforms import (
     FileField,
     HiddenField,
+    IntegerField,
     PasswordField,
     RadioField,
     SelectField,
@@ -10,7 +11,15 @@ from wtforms import (
 )
 from wtforms.fields.html5 import EmailField
 from wtforms.validators import InputRequired
+from wtforms.widgets.html5 import NumberInput
 
+from CTFd.constants.config import (
+    AccountVisibilityTypes,
+    ChallengeVisibilityTypes,
+    RegistrationVisibilityTypes,
+    ScoreVisibilityTypes,
+)
+from CTFd.constants.themes import DEFAULT_THEME
 from CTFd.forms import BaseForm
 from CTFd.forms.fields import SubmitField
 from CTFd.utils.config import get_themes
@@ -68,8 +77,7 @@ class SetupForm(BaseForm):
         _l("Theme"),
         description=_l("CTFd Theme to use. Can be changed later."),
         choices=list(zip(get_themes(), get_themes())),
-        ## TODO: Replace back to DEFAULT_THEME (aka core) in CTFd 4.0
-        default="core-beta",
+        default=DEFAULT_THEME,
         validators=[InputRequired()],
     )
     theme_color = HiddenField(
@@ -79,6 +87,58 @@ class SetupForm(BaseForm):
         ),
     )
 
+    verify_emails = SelectField(
+        _l("Verify Emails"),
+        description="Control whether users must confirm their email addresses before participating",
+        choices=[("true", "Enabled"), ("false", "Disabled")],
+        default="false",
+    )
+    team_size = IntegerField(
+        widget=NumberInput(min=0),
+        description="Amount of users per team (Teams mode only) Optional.",
+    )
+    challenge_visibility = SelectField(
+        "Challenge Visibility",
+        description="Control whether users must be logged in to see challenges",
+        choices=[
+            (ChallengeVisibilityTypes.PUBLIC, "Public"),
+            (ChallengeVisibilityTypes.PRIVATE, "Private"),
+            (ChallengeVisibilityTypes.ADMINS, "Admins Only"),
+        ],
+        default=ChallengeVisibilityTypes.PRIVATE,
+    )
+    account_visibility = SelectField(
+        "Account Visibility",
+        description="Control whether accounts (users & teams) are shown to everyone, only to authenticated users, or only to admins",
+        choices=[
+            (AccountVisibilityTypes.PUBLIC, "Public"),
+            (AccountVisibilityTypes.PRIVATE, "Private"),
+            (AccountVisibilityTypes.ADMINS, "Admins Only"),
+        ],
+        default=AccountVisibilityTypes.PUBLIC,
+    )
+    score_visibility = SelectField(
+        "Score Visibility",
+        description="Control whether solves/score are shown to the public, to logged in users, hidden to all non-admins, or only shown to admins",
+        choices=[
+            (ScoreVisibilityTypes.PUBLIC, "Public"),
+            (ScoreVisibilityTypes.PRIVATE, "Private"),
+            (ScoreVisibilityTypes.HIDDEN, "Hidden"),
+            (ScoreVisibilityTypes.ADMINS, "Admins Only"),
+        ],
+        default=AccountVisibilityTypes.PUBLIC,
+    )
+    registration_visibility = SelectField(
+        "Registration Visibility",
+        description="Control whether registration is enabled for everyone or disabled",
+        choices=[
+            (RegistrationVisibilityTypes.PUBLIC, "Public"),
+            (RegistrationVisibilityTypes.PRIVATE, "Private"),
+            (RegistrationVisibilityTypes.MLC, "MajorLeagueCyber Only"),
+        ],
+        default=RegistrationVisibilityTypes.PUBLIC,
+    )
+
     start = StringField(
         _l("Start Time"),
         description=_l("Time when your CTF is scheduled to start. Optional."),
@@ -86,5 +146,12 @@ class SetupForm(BaseForm):
     end = StringField(
         _l("End Time"),
         description=_l("Time when your CTF is scheduled to end. Optional."),
+    )
+
+    social_shares = SelectField(
+        _l("Social Shares"),
+        description="Control whether users can share links commemorating their challenge solves",
+        choices=[("true", "Enabled"), ("false", "Disabled")],
+        default="true",
     )
     submit = SubmitField(_l("Finish"))

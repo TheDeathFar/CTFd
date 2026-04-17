@@ -15,10 +15,12 @@ from sqlalchemy_utils import drop_database
 from werkzeug.datastructures import Headers
 
 from CTFd import create_app
-from CTFd.cache import cache, clear_challenges, clear_standings
+from CTFd.cache import cache, clear_challenges, clear_ratings, clear_standings
 from CTFd.config import TestingConfig
+from CTFd.constants.themes import DEFAULT_THEME
 from CTFd.models import (
     Awards,
+    Brackets,
     ChallengeComments,
     ChallengeFiles,
     Challenges,
@@ -33,6 +35,8 @@ from CTFd.models import (
     PageComments,
     PageFiles,
     Pages,
+    Ratings,
+    Solutions,
     Solves,
     Tags,
     TeamComments,
@@ -129,11 +133,15 @@ def create_ctfd(
     enable_plugins=False,
     application_root="/",
     config=TestingConfig,
+    ctf_theme=None,
 ):
     if enable_plugins:
         config.SAFE_MODE = False
     else:
         config.SAFE_MODE = True
+
+    if ctf_theme is None:
+        ctf_theme = DEFAULT_THEME
 
     config.APPLICATION_ROOT = application_root
     url = make_url(config.SQLALCHEMY_DATABASE_URI)
@@ -153,6 +161,7 @@ def create_ctfd(
             email=email,
             password=password,
             user_mode=user_mode,
+            ctf_theme=ctf_theme,
         )
     return app
 
@@ -165,7 +174,10 @@ def setup_ctfd(
     email="admin@examplectf.com",
     password="password",
     user_mode="users",
+    ctf_theme=None,
 ):
+    if ctf_theme is None:
+        ctf_theme = DEFAULT_THEME
     with app.app_context():
         with app.test_client() as client:
             client.get("/setup")  # Populate session with nonce
@@ -178,6 +190,7 @@ def setup_ctfd(
                     "password": password,
                     "user_mode": user_mode,
                     "nonce": sess.get("nonce"),
+                    "ctf_theme": ctf_theme,
                 }
             client.post("/setup", data=data)
     return app
@@ -195,6 +208,7 @@ def register_user(
     name="user",
     email="user@examplectf.com",
     password="password",
+    bracket_id=None,
     raise_for_error=True,
 ):
     with app.app_context():
@@ -207,6 +221,8 @@ def register_user(
                     "password": password,
                     "nonce": sess.get("nonce"),
                 }
+            if bracket_id:
+                data["bracket_id"] = bracket_id
             client.post("/register", data=data)
             if raise_for_error:
                 with client.session_transaction() as sess:
@@ -460,6 +476,16 @@ def gen_solve(
     return solve
 
 
+def gen_rating(db, user_id, challenge_id, value=1, review="Great challenge!", **kwargs):
+    rating = Ratings(
+        user_id=user_id, challenge_id=challenge_id, value=value, review=review, **kwargs
+    )
+    db.session.add(rating)
+    db.session.commit()
+    clear_ratings()
+    return rating
+
+
 def gen_fail(
     db,
     user_id,
@@ -535,6 +561,16 @@ def gen_comment(db, content="comment", author_id=None, type="challenge", **kwarg
     return comment
 
 
+def gen_solution(db, challenge_id, content="test solution", state="hidden", **kwargs):
+    """Helper function to generate a solution"""
+    solution = Solutions(
+        challenge_id=challenge_id, content=content, state=state, **kwargs
+    )
+    db.session.add(solution)
+    db.session.commit()
+    return solution
+
+
 def gen_field(
     db,
     name="CustomField",
@@ -557,6 +593,21 @@ def gen_field(
     db.session.add(field)
     db.session.commit()
     return field
+
+
+def gen_bracket(
+    db,
+    name="players",
+    description="players who are part of the test",
+    type="users",
+):
+    bracket = Brackets(
+        name=name,
+        description=description,
+        type=type,
+    )
+    db.session.add(bracket)
+    db.session.commit()
 
 
 def simulate_user_activity(db, user):

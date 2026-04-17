@@ -11,9 +11,9 @@ from flask import (
     session,
     url_for,
 )
-from flask.helpers import safe_join
 from jinja2.exceptions import TemplateNotFound
 from sqlalchemy.exc import IntegrityError
+from werkzeug.utils import safe_join
 
 from CTFd.cache import cache
 from CTFd.constants.config import (
@@ -29,6 +29,7 @@ from CTFd.models import (
     Files,
     Notifications,
     Pages,
+    Solutions,
     Teams,
     Users,
     UserTokens,
@@ -37,21 +38,11 @@ from CTFd.models import (
 from CTFd.utils import config, get_config, set_config
 from CTFd.utils import user as current_user
 from CTFd.utils import validators
-from CTFd.utils.config import is_setup, is_teams_mode
+from CTFd.utils.config import can_send_mail, is_setup, is_teams_mode
 from CTFd.utils.config.pages import build_markdown, get_page
 from CTFd.utils.config.visibility import challenges_visible
 from CTFd.utils.dates import ctf_ended, ctftime, view_after_ctf
 from CTFd.utils.decorators import authed_only
-from CTFd.utils.email import (
-    DEFAULT_PASSWORD_RESET_BODY,
-    DEFAULT_PASSWORD_RESET_SUBJECT,
-    DEFAULT_SUCCESSFUL_REGISTRATION_EMAIL_BODY,
-    DEFAULT_SUCCESSFUL_REGISTRATION_EMAIL_SUBJECT,
-    DEFAULT_USER_CREATION_EMAIL_BODY,
-    DEFAULT_USER_CREATION_EMAIL_SUBJECT,
-    DEFAULT_VERIFICATION_EMAIL_BODY,
-    DEFAULT_VERIFICATION_EMAIL_SUBJECT,
-)
 from CTFd.utils.health import check_config, check_database
 from CTFd.utils.helpers import get_errors, get_infos, markup
 from CTFd.utils.modes import USERS_MODE
@@ -65,7 +56,7 @@ from CTFd.utils.security.signing import (
     unserialize,
 )
 from CTFd.utils.uploads import get_uploader, upload_file
-from CTFd.utils.user import authed, get_current_team, get_current_user, is_admin
+from CTFd.utils.user import authed, get_current_team, get_current_user, get_ip, is_admin
 
 views = Blueprint("views", __name__)
 
@@ -84,6 +75,32 @@ def setup():
             set_config("ctf_name", ctf_name)
             set_config("ctf_description", ctf_description)
             set_config("user_mode", user_mode)
+
+            # Settings
+            challenge_visibility = ChallengeVisibilityTypes(
+                request.form.get(
+                    "challenge_visibility", default=ChallengeVisibilityTypes.PRIVATE
+                )
+            )
+            account_visibility = AccountVisibilityTypes(
+                request.form.get(
+                    "account_visibility", default=AccountVisibilityTypes.PUBLIC
+                )
+            )
+            score_visibility = ScoreVisibilityTypes(
+                request.form.get(
+                    "score_visibility", default=ScoreVisibilityTypes.PUBLIC
+                )
+            )
+            registration_visibility = RegistrationVisibilityTypes(
+                request.form.get(
+                    "registration_visibility",
+                    default=RegistrationVisibilityTypes.PUBLIC,
+                )
+            )
+            verify_emails = request.form.get("verify_emails")
+            social_shares = request.form.get("social_shares")
+            team_size = request.form.get("team_size")
 
             # Style
             ctf_logo = request.files.get("ctf_logo")
@@ -169,7 +186,7 @@ def setup():
             )
 
             # Create an empty index page
-            page = Pages(title=None, route="index", content="", draft=False)
+            page = Pages(title=ctf_name, route="index", content="", draft=False)
 
             # Upload banner
             default_ctf_banner_location = url_for("views.themes", path="img/logo.png")
@@ -177,6 +194,7 @@ def setup():
             if ctf_banner:
                 f = upload_file(file=ctf_banner, page_id=page.id)
                 default_ctf_banner_location = url_for("views.files", path=f.location)
+                set_config("ctf_banner", f.location)
 
             # Splice in our banner
             index = f"""<div class="row">
@@ -198,17 +216,19 @@ def setup():
             page.content = index
 
             # Visibility
-            set_config(
-                ConfigTypes.CHALLENGE_VISIBILITY, ChallengeVisibilityTypes.PRIVATE
-            )
-            set_config(
-                ConfigTypes.REGISTRATION_VISIBILITY, RegistrationVisibilityTypes.PUBLIC
-            )
-            set_config(ConfigTypes.SCORE_VISIBILITY, ScoreVisibilityTypes.PUBLIC)
-            set_config(ConfigTypes.ACCOUNT_VISIBILITY, AccountVisibilityTypes.PUBLIC)
+            set_config(ConfigTypes.CHALLENGE_VISIBILITY, challenge_visibility)
+            set_config(ConfigTypes.REGISTRATION_VISIBILITY, registration_visibility)
+            set_config(ConfigTypes.SCORE_VISIBILITY, score_visibility)
+            set_config(ConfigTypes.ACCOUNT_VISIBILITY, account_visibility)
 
             # Verify emails
-            set_config("verify_emails", None)
+            set_config("verify_emails", verify_emails)
+
+            # Social shares
+            set_config("social_shares", social_shares)
+
+            # Team Size
+            set_config("team_size", team_size)
 
             set_config("mail_server", None)
             set_config("mail_port", None)
@@ -217,39 +237,6 @@ def setup():
             set_config("mail_username", None)
             set_config("mail_password", None)
             set_config("mail_useauth", None)
-
-            # Set up default emails
-            set_config("verification_email_subject", DEFAULT_VERIFICATION_EMAIL_SUBJECT)
-            set_config("verification_email_body", DEFAULT_VERIFICATION_EMAIL_BODY)
-
-            set_config(
-                "successful_registration_email_subject",
-                DEFAULT_SUCCESSFUL_REGISTRATION_EMAIL_SUBJECT,
-            )
-            set_config(
-                "successful_registration_email_body",
-                DEFAULT_SUCCESSFUL_REGISTRATION_EMAIL_BODY,
-            )
-
-            set_config(
-                "user_creation_email_subject", DEFAULT_USER_CREATION_EMAIL_SUBJECT
-            )
-            set_config("user_creation_email_body", DEFAULT_USER_CREATION_EMAIL_BODY)
-
-            set_config("password_reset_subject", DEFAULT_PASSWORD_RESET_SUBJECT)
-            set_config("password_reset_body", DEFAULT_PASSWORD_RESET_BODY)
-
-            set_config(
-                "password_change_alert_subject",
-                "Password Change Confirmation for {ctf_name}",
-            )
-            set_config(
-                "password_change_alert_body",
-                (
-                    "Your password for {ctf_name} has been changed.\n\n"
-                    "If you didn't request a password change you can reset your password here: {url}"
-                ),
-            )
 
             set_config("setup", True)
 
@@ -335,13 +322,12 @@ def settings():
 
     prevent_name_change = get_config("prevent_name_change")
 
-    if get_config("verify_emails") and not user.verified:
-        confirm_url = markup(url_for("auth.confirm"))
+    if can_send_mail() and not user.verified:
+        confirm_url = markup(url_for("auth.confirm", flow="init"))
         infos.append(
             markup(
                 "Your email address isn't confirmed!<br>"
-                "Please check your email to confirm your email address.<br><br>"
-                f'To have the confirmation email resent please <a href="{confirm_url}">click here</a>.'
+                f'To confirm your email address please <a href="{confirm_url}">click here</a>.'
             )
         )
 
@@ -423,53 +409,69 @@ def files(path):
             # User cannot view challenges based on challenge visibility
             # e.g. ctf requires registration but user isn't authed or
             # ctf requires admin account but user isn't admin
+
+            # Allow downloads if a valid token is provided
+            # For example with wget downloads
+            token = request.args.get("token", "")
+            try:
+                data = unserialize(token, max_age=3600)
+            # The token isn't expired or broken
+            except (BadTimeSignature, SignatureExpired, BadSignature):
+                abort(403)
+
+            # Determine the user and team asking to download
+            user_id = data.get("user_id")
+            team_id = data.get("team_id")
+            file_id = data.get("file_id")
+            user = Users.query.filter_by(id=user_id).first()
+            team = Teams.query.filter_by(id=team_id).first()
+
             if not ctftime():
                 # It's not CTF time. The only edge case is if the CTF is ended
                 # but we have view_after_ctf enabled
                 if ctf_ended() and view_after_ctf():
                     pass
                 else:
-                    # In all other situations we should block challenge files
-                    abort(403)
-
-            # Allow downloads if a valid token is provided
-            token = request.args.get("token", "")
-            try:
-                data = unserialize(token, max_age=3600)
-                user_id = data.get("user_id")
-                team_id = data.get("team_id")
-                file_id = data.get("file_id")
-                user = Users.query.filter_by(id=user_id).first()
-                team = Teams.query.filter_by(id=team_id).first()
-
-                # Check user is admin if challenge_visibility is admins only
-                if (
-                    get_config(ConfigTypes.CHALLENGE_VISIBILITY) == "admins"
-                    and user.type != "admin"
-                ):
-                    abort(403)
-
-                # Check that the user exists and isn't banned
-                if user:
-                    if user.banned:
+                    if user.type == "admin":
+                        # We allow admins to download files by URL before CTF start
+                        pass
+                    else:
+                        # In all other situations we should block challenge files
                         abort(403)
-                else:
-                    abort(403)
 
-                # Check that the team isn't banned
-                if team:
-                    if team.banned:
-                        abort(403)
-                else:
-                    pass
-
-                # Check that the token properly refers to the file
-                if file_id != f.id:
-                    abort(403)
-
-            # The token isn't expired or broken
-            except (BadTimeSignature, SignatureExpired, BadSignature):
+            # Check user is admin if challenge_visibility is admins only
+            if (
+                get_config(ConfigTypes.CHALLENGE_VISIBILITY) == "admins"
+                and user.type != "admin"
+            ):
                 abort(403)
+
+            # Check that the user exists and isn't banned
+            if user:
+                if user.banned:
+                    abort(403)
+            else:
+                abort(403)
+
+            # Check that the team isn't banned
+            if team:
+                if team.banned:
+                    abort(403)
+            else:
+                pass
+
+            # Check that the token properly refers to the file
+            if file_id != f.id:
+                abort(403)
+
+    elif f.type == "solution":
+        s = Solutions.query.filter_by(id=f.solution_id).first_or_404()
+        if s.state != "visible" or s.challenge.state != "visible":
+            # Admins can see solution files for preview purposes
+            if current_user.is_admin() is True:
+                pass
+            else:
+                abort(404)
 
     uploader = get_uploader()
     try:
@@ -492,8 +494,11 @@ def themes(theme, path):
         # admin pages, so we check that first
         for cand_theme in (theme, *config.ctf_theme_candidates())
     ):
+        # Handle werkzeug behavior of returning None on malicious paths
+        if cand_path is None:
+            abort(404)
         if os.path.isfile(cand_path):
-            return send_file(cand_path)
+            return send_file(cand_path, max_age=3600)
     abort(404)
 
 
@@ -512,8 +517,11 @@ def themes_beta(theme, path):
         # admin pages, so we check that first
         for cand_theme in (theme, *config.ctf_theme_candidates())
     ):
+        # Handle werkzeug behavior of returning None on malicious paths
+        if cand_path is None:
+            abort(404)
         if os.path.isfile(cand_path):
-            return send_file(cand_path)
+            return send_file(cand_path, max_age=3600)
     abort(404)
 
 
@@ -524,6 +532,23 @@ def healthcheck():
     if check_config() is False:
         return "ERR", 500
     return "OK", 200
+
+
+@views.route("/debug")
+def debug():
+    if app.config.get("SAFE_MODE") is True:
+        ip = get_ip()
+        headers = dict(request.headers)
+        # Remove Cookie item
+        headers.pop("Cookie", None)
+        resp = ""
+        resp += f"IP: {ip}\n"
+        for k, v in headers.items():
+            resp += f"{k}: {v}\n"
+        r = make_response(resp)
+        r.mimetype = "text/plain"
+        return r
+    abort(404)
 
 
 @views.route("/robots.txt")

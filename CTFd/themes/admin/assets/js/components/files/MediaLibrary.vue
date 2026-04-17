@@ -32,15 +32,15 @@
                     <a
                       href="javascript:void(0)"
                       @click="
-                        selectFile(file);
-                        return false;
+                        selectFile(file)
+                        // return false;
                       "
                     >
                       <i
                         v-bind:class="getIconClass(file.location)"
                         aria-hidden="true"
                       ></i>
-                      <small class="media-item-title">{{
+                      <small class="media-item-title pl-1">{{
                         file.location.split("/").pop()
                       }}</small>
                     </a>
@@ -54,21 +54,23 @@
                         <div
                           v-if="
                             getIconClass(this.selectedFile.location) ===
-                              'far fa-file-image'
+                            'far fa-file-image'
                           "
                         >
                           <img
                             v-bind:src="buildSelectedFileUrl()"
-                            style="max-width: 100%; max-height: 100%; object-fit: contain;"
+                            style="
+                              max-width: 100%;
+                              max-height: 100%;
+                              object-fit: contain;
+                            "
                           />
                         </div>
                         <div v-else>
                           <i
-                            v-bind:class="
-                              `${getIconClass(
-                                this.selectedFile.location
-                              )} fa-4x`
-                            "
+                            v-bind:class="`${getIconClass(
+                              this.selectedFile.location,
+                            )} fa-4x`"
                             aria-hidden="true"
                           ></i>
                         </div>
@@ -155,22 +157,40 @@
           </div>
 
           <form id="media-library-upload" enctype="multipart/form-data">
-            <div class="form-group">
-              <label for="media-files">
-                Upload Files
-              </label>
-              <input
-                type="file"
-                name="file"
-                id="media-files"
-                class="form-control-file"
-                multiple
-              />
-              <sub class="help-block">
-                Attach multiple files using Control+Click or Cmd+Click.
-              </sub>
+            <div class="form-row pt-3">
+              <div class="col">
+                <div class="form-group">
+                  <label for="media-files">Upload Files</label>
+                  <input
+                    type="file"
+                    name="file"
+                    id="media-files"
+                    class="form-control-file"
+                    multiple
+                  />
+                  <sub class="help-block">
+                    Attach multiple files using Control+Click or Cmd+Click.
+                  </sub>
+                </div>
+              </div>
+              <div class="col">
+                <div class="form-group">
+                  <label>Upload File Location</label>
+                  <input
+                    class="form-control"
+                    type="text"
+                    name="location"
+                    placeholder="Location"
+                  />
+                  <sub class="help-block">
+                    Route where file will be accessible (if not provided a
+                    random folder will be used). <br />
+                    Provide as <code>directory/filename.ext</code>
+                  </sub>
+                </div>
+              </div>
             </div>
-            <input type="hidden" value="page" name="type" />
+            <input type="hidden" :value="this.media_type" name="type" />
           </form>
         </div>
         <div class="modal-footer">
@@ -190,59 +210,67 @@
 </template>
 
 <script>
-import CTFd from "core/CTFd";
-import { ezQuery, ezToast } from "core/ezq";
-import { default as helpers } from "core/helpers";
+import CTFd from "../../compat/CTFd";
+import { default as helpers } from "../../compat/helpers";
 
-function get_page_files() {
-  return CTFd.fetch("/api/v1/files?type=page", {
-    credentials: "same-origin"
-  }).then(function(response) {
+function get_page_files(type = "page") {
+  return CTFd.fetch(`/api/v1/files?type=${type}`, {
+    credentials: "same-origin",
+  }).then(function (response) {
     return response.json();
   });
 }
 
 export default {
   props: {
-    editor: Object
+    editor: Object,
   },
-  data: function() {
+  data: function () {
     return {
       files: [],
-      selectedFile: null
+      selectedFile: null,
+      media_type: "page",
     };
   },
   methods: {
-    getPageFiles: function() {
-      get_page_files().then(response => {
+    getPageFiles: function () {
+      get_page_files(this.media_type).then((response) => {
         this.files = response.data;
         return this.files;
       });
     },
-    uploadChosenFiles: function() {
+    uploadChosenFiles: function () {
       // TODO: We should reduce the need to interact with the DOM directly.
       // This looks jank and we should be able to remove it.
+      let extra = {};
+      if (this.editor.element) {
+        let mediaIdTitle = this.editor.element.getAttribute("media-id-title");
+        let mediaId = this.editor.element.getAttribute("media-id");
+        if (mediaId) {
+          extra[mediaIdTitle] = mediaId;
+        }
+      }
       let form = document.querySelector("#media-library-upload");
-      helpers.files.upload(form, {}, _data => {
+      helpers.files.upload(form, extra, (_data) => {
         this.getPageFiles();
       });
     },
-    selectFile: function(file) {
+    selectFile: function (file) {
       this.selectedFile = file;
       return this.selectedFile;
     },
-    buildSelectedFileUrl: function() {
+    buildSelectedFileUrl: function () {
       return CTFd.config.urlRoot + "/files/" + this.selectedFile.location;
     },
-    deleteSelectedFile: function() {
-      var file_id = this.selectedFile.id;
+    deleteSelectedFile: function () {
+      const file_id = this.selectedFile.id;
 
       if (confirm("Are you sure you want to delete this file?")) {
         CTFd.fetch("/api/v1/files/" + file_id, {
-          method: "DELETE"
-        }).then(response => {
+          method: "DELETE",
+        }).then((response) => {
           if (response.status === 200) {
-            response.json().then(object => {
+            response.json().then((object) => {
               if (object.success) {
                 this.getPageFiles();
                 this.selectedFile = null;
@@ -252,31 +280,31 @@ export default {
         });
       }
     },
-    insertSelectedFile: function() {
+    insertSelectedFile: function () {
       let editor = this.$props.editor;
       if (editor.hasOwnProperty("codemirror")) {
         editor = editor.codemirror;
       }
-      let doc = editor.getDoc();
-      let cursor = doc.getCursor();
+      const doc = editor.getDoc();
+      const cursor = doc.getCursor();
 
-      let url = this.buildSelectedFileUrl();
-      let img =
+      const url = this.buildSelectedFileUrl();
+      const img =
         this.getIconClass(this.selectedFile.location) === "far fa-file-image";
-      let filename = url.split("/").pop();
-      link = "[{0}]({1})".format(filename, url);
+      const filename = url.split("/").pop();
+      let link = "[{0}]({1})".format(filename, url);
       if (img) {
         link = "!" + link;
       }
 
       doc.replaceRange(link, cursor);
     },
-    downloadSelectedFile: function() {
-      var link = this.buildSelectedFileUrl();
+    downloadSelectedFile: function () {
+      const link = this.buildSelectedFileUrl();
       window.open(link, "_blank");
     },
-    getIconClass: function(filename) {
-      var mapping = {
+    getIconClass: function (filename) {
+      const mapping = {
         // Image Files
         png: "far fa-file-image",
         jpg: "far fa-file-image",
@@ -318,15 +346,23 @@ export default {
         html: "far fa-file-code",
         js: "far fa-file-code",
         rb: "far fa-file-code",
-        go: "far fa-file-code"
+        go: "far fa-file-code",
       };
 
-      var ext = filename.split(".").pop();
+      const ext = filename.split(".").pop();
       return mapping[ext] || "far fa-file";
-    }
+    },
   },
   created() {
+    let element = this.editor.element;
+    let media_type = null;
+    if (element) {
+      media_type = element.getAttribute("media-type");
+    }
+    if (media_type) {
+      this.media_type = media_type;
+    }
     return this.getPageFiles();
-  }
+  },
 };
 </script>

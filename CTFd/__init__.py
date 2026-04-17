@@ -1,17 +1,19 @@
 import datetime
 import os
 import sys
+import time
 import weakref
 from distutils.version import StrictVersion
 
 import jinja2
 from flask import Flask, Request
-from flask.helpers import safe_join
 from flask_babel import Babel
 from flask_migrate import upgrade
 from jinja2 import FileSystemLoader
 from jinja2.sandbox import SandboxedEnvironment
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.utils import safe_join
+from werkzeug.wsgi import get_host
 
 import CTFd.utils.config
 from CTFd import utils
@@ -31,7 +33,7 @@ from CTFd.utils.sessions import CachingSessionInterface
 from CTFd.utils.updates import update_check
 from CTFd.utils.user import get_locale
 
-__version__ = "3.5.3"
+__version__ = "3.8.3"
 __channel__ = "oss"
 
 
@@ -53,16 +55,39 @@ class CTFdFlask(Flask):
         self.session_interface = CachingSessionInterface(key_prefix="session")
         self.request_class = CTFdRequest
 
+        Flask.__init__(self, *args, **kwargs)
+
         # Store server start time
         self.start_time = datetime.datetime.utcnow()
 
-        # Create generally unique run identifier
-        self.run_id = sha256(str(self.start_time))[0:8]
-        Flask.__init__(self, *args, **kwargs)
+        # Create time-based run identifier.
+        # In production round the timestamp to incrase chances that workers get the same run_id
+        if self.debug:
+            time_based_run_id = str(self.start_time)
+        else:
+            time_based_run_id = str(round(self.start_time.timestamp() / 60) * 60)
+
+        self.time_based_run_id = sha256(time_based_run_id)[0:8]
+
+    @property
+    def run_id(self):
+        # use RUN_ID if exists, otherwise fall back to time_based_run_in
+        return self.config.get("RUN_ID") or self.time_based_run_id
 
     def create_jinja_environment(self):
         """Overridden jinja environment constructor"""
         return super(CTFdFlask, self).create_jinja_environment()
+
+    def create_url_adapter(self, request):
+        # TODO: Backport of TRUSTED_HOSTS behavior from Flask. Remove when possible.
+        # https://github.com/pallets/flask/pull/5637
+        if request is not None:
+            if (trusted_hosts := self.config.get("TRUSTED_HOSTS")) is not None:
+                request.trusted_hosts = trusted_hosts
+
+            # Check trusted_hosts here until bind_to_environ does.
+            request.host = get_host(request.environ, request.trusted_hosts)
+        return super(CTFdFlask, self).create_url_adapter(request)
 
 
 class SandboxedBaseEnvironment(SandboxedEnvironment):
@@ -71,6 +96,9 @@ class SandboxedBaseEnvironment(SandboxedEnvironment):
     def __init__(self, app, **options):
         if "loader" not in options:
             options["loader"] = app.create_global_jinja_loader()
+        if "finalize" not in options:
+            # Suppress None into empty strings
+            options["finalize"] = lambda x: x if x is not None else ""
         SandboxedEnvironment.__init__(self, **options)
         self.app = app
 
@@ -161,6 +189,17 @@ def create_app(config="CTFd.config.Config"):
     with app.app_context():
         app.config.from_object(config)
 
+        from CTFd.cache import cache
+        from CTFd.utils import import_in_progress
+
+        cache.init_app(app)
+        app.cache = cache
+
+        # If we are importing we should pause startup until the import is finished
+        while import_in_progress():
+            print("Import currently in progress, CTFd startup paused for 5 seconds")
+            time.sleep(5)
+
         loaders = []
         # We provide a `DictLoader` which may be used to override templates
         app.overridden_templates = {}
@@ -248,11 +287,6 @@ def create_app(config="CTFd.config.Config"):
         app.VERSION = __version__
         app.CHANNEL = __channel__
 
-        from CTFd.cache import cache
-
-        cache.init_app(app)
-        app.cache = cache
-
         reverse_proxy = app.config.get("REVERSE_PROXY")
         if reverse_proxy:
             if type(reverse_proxy) is str and "," in reverse_proxy:
@@ -292,6 +326,7 @@ def create_app(config="CTFd.config.Config"):
         from CTFd.errors import render_error
         from CTFd.events import events
         from CTFd.scoreboard import scoreboard
+        from CTFd.share import social
         from CTFd.teams import teams
         from CTFd.users import users
         from CTFd.views import views
@@ -304,10 +339,11 @@ def create_app(config="CTFd.config.Config"):
         app.register_blueprint(auth)
         app.register_blueprint(api)
         app.register_blueprint(events)
+        app.register_blueprint(social)
 
         app.register_blueprint(admin)
 
-        for code in {403, 404, 500, 502}:
+        for code in {401, 403, 404, 500, 502}:
             app.register_error_handler(code, render_error)
 
         init_logs(app)

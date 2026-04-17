@@ -1,3 +1,497 @@
+# 3.8.3 / 2026-04-10
+
+**General**
+
+- Add Challenge position to improve control over challenge ordering
+  - Positions of 0 go to the end and follow existing challenge sorting behavior. Otherwise position is increasing from 1 to n
+- Use localized datetime formatting (datetimes will show in the user's preferred language format)
+- Add anonymize setting to preview general details of challenges with prerequisites
+
+**Admin Panel**
+
+- Update progression matrix to support filters that are stored in the browser
+- Add challenge category to progression matrix
+- Add seperate frozen and unfrozen scoreboard CSV exports
+  - The unfrozen scoreboard is the `scoreboard-admin` CSV export
+- Add a CSV import & export for users with their team information
+- Fix an issue where Page Preview could sometimes throw an error
+- Fix error thrown in the Admin Panel when theme name is numeric
+
+**API**
+
+- `/api/v1/hints/[hint_id]` will now return 404 if the hint's associated challenge is hidden
+- Add `/api/v1/statistics/progression/matrix` to support the progression matrix
+- Add caching to `/api/v1/users/[user_id]`
+- Add caching to `/api/v1/teams/[team_id]`
+- Fix issue with bracket validation where users could join team brackets and vice-versa
+- Make Content-Type checks more flexible when checking for JSON Content-Types
+- Return description when returning a 401 error
+
+**Themes**
+
+- Fix regression in core theme where anonymous users would not be redirected to login on flag submit
+- When restoring from a backup, set the theme from the backup if it is available, otherwise fall back to the default theme
+
+**Deployment**
+
+- Fix upload permissions error by using a sidecar container to set permissions in mounted folders
+  - In CTFd 4.0 we will likely migrate to named volumes or similar to allow removal of this permissions sidecar container
+- Disable CSRF check for static theme content on the `views.themes_beta` endpoint and when accessed via read-only methods
+
+**Translations**
+
+- Properly update included translations
+- Add Serbian, Czech translations
+
+# 3.8.2 / 2026-02-05
+
+**Security**
+
+- Fixes a vulnerability where a malicious admin user could import a crafted zip file to write files arbitrarily depending on the deployment
+
+**General**
+
+- When a user is submission ratelimited, those submissions will now be the `ratelimit` submission type instead of `incorrect`
+- Fix issues with ratelimiting on max attempt challenges
+- Switch max attempt timeout messaging to seconds instead of minutes
+- Fix issue where users would get an error when solving an already solved challenge
+
+**Plugins**
+
+- Add `Ratelimiteds` submission class
+- Add `BaseChallenge.ratelimited()` method which creates `Ratelimiteds` submissions
+- Add `force_all` parameter to `CTFd.plugins.migrations.upgrade()` to allow plugins to decide if they want to force run all migrations
+- Add `app.overridden_functions` global which allows plugin developers to override functions that support the behavior
+- Raise `ChallengeSolveException` in `BaseChallenge.solve()` when encountering a duplicate solve situation
+
+**Themes**
+
+- Mark required fields in registration, login, and custom fields with a red asterisk
+
+**Deployment**
+
+- The provided Docker Compose file will no longer use the `root` user and instead use the provided `ctfd` user
+- Add `PUT` method to IP address tracking
+
+**Translations**
+
+- Add Norwegian, Turkish, Croatian translation
+
+# 3.8.1 / 2025-11-06
+
+**Security**
+
+- Make challenge attempt ratelimit stricter
+- Make reset password ratelimit stricter and apply per-account
+
+**General**
+
+- Integrates dynamic scoring into the standard challenge type
+  - All challenges will now have `initial`, `decay`, `minimum`, `function` columns available through the standard challenge type
+  - Scoring logic for challenges can be configured with the `function` field
+  - The dynamic value challenge plugin will remain supported until CTFd 4.0
+- Add `solved` solution visibility to challenge solutions
+  - This only allows a user to view a challenge's solution if they've solved the associated challenge
+
+**Admin Panel**
+
+- Add bulk editing for solution visibility in the Admin Panel Challenges page
+
+**API**
+
+- Change `GET /api/v1/solutions/[solution_id]` to return 404 if a solution is hidden instead of a 403
+- Add `/api/v1/challenges/[challenge_id]/solution` endpoint to check if a challenge solution is accessible
+
+**Themes**
+
+- CTFd.js has been bumped to `0.0.19`
+- `challenges.js` now has additional functions `getSolutionState` and `setSolutionId` to allow the UI to determine if a solution is accessible
+
+**Deployment**
+
+- Fixes issues where preset admins would not be created
+- Add `RUN_ID` config which specifies a token which will be used as a cache-buster URL parameter
+- Add `EXTRA_CONFIGS_FORCE_TYPES` config to allow server admins to force types for configs specified in the `[extra]` section
+- If `UPDATE_CHECK` is disabled the update prompt banner should be properly disabled
+- Fix issue where users would be put into an infinite loop if confirm emails is enabled without having an email server configured
+
+**Translations**
+
+- Add Uzbek and Hebrew languages
+
+# 3.8.0 / 2025-09-04
+
+**General**
+
+- Admins can now configure whether users can see their past submissions
+- Admins can now store challenge solutions within CTFd to be viewed by users
+- Participants can now leave upvotes/downvotes on challenges as well as their review of a challenge
+  - Ratings/Votes can be configured to be viewed by participants or only admins
+  - Reviews are only visible by admins
+- Challenges now have the `logic` field which allows for challenge developers to control the flag collection behavior of a challenge:
+  - `any`: any flag is accepted for the challenge
+  - `all`: all flags for the challenge must be submitted
+  - `team`: all team members must submit any flag
+- Max Attempts can now behave as a timeout instead of a lockout
+  - For example a user who submits 3 attempts will then be prevented from submitting another attempt for 5 minutes instead of being unable to submit entirely
+- Social Shares for challenge completion are now enabled by default and admins may now control the social share template page
+- Additional attempts after solving on challenges will now show if the submissions is correct/incorrect
+- If email sending is available, email confirmation is enabled by default and users are nudged to complete email verification.
+- Hints can now have a title that is shown before unlocking
+- Hints now always require unlocking even if they require no cost
+  - Prevents accidental viewing and improves tracking of hint usage
+- CTFd will now store a tracking event under `challenges.open` in the Tracking table when a challenge is opened for the first time by a user
+- Challenges now report whether a flag is correct or incorrect even if the challenge has already been solved
+- Fixes issue where admins could not download challenge files before CTF start when downloading anonymously
+
+**Admin Panel**
+
+- Added a matrix scoreboard to the Statistics page to show player progression through the CTF
+- Added support for brackets in the Admin Panel scoreboard
+- Added config option for minimum password length
+- Added config option to control whether players can view their previous submissions
+- Admins can now require users to change their password upon login
+- Added config option to control Max Attempts behavior
+- In the Admin Panel challenge preview, admins now only see free hints
+- Fixed issue where the hint form was not resetting properly when creating multiple hints
+
+**API**
+
+- Added `/api/v1/users/me/submissions` for users to retrieve their own submissions
+- Added `/api/v1/challenges/[challenge_id]/solutions` for users to retrieve challenge solutions
+- Added `/api/v1/challenges/[challenge_id]/ratings` for users to submit ratings and for admins to retrieve them
+- Added `ratings` and `rating` fields to the response of `/api/v1/challenges/[challenge_id]`
+- Added `solution_id` to the response of `/api/v1/challenges/[challenge_id]`
+  - If no solution is available, the field is `null`
+- Added `logic` field to the response of `/api/v1/challenges/[challenge_id]`
+- Added `change_password` field to `/api/v1/users/[user_id]` when viewed as an admin
+- Added `/api/v1/solutions` and `/api/v1/solutions/[solution_id]` endpoints
+- `/api/v1/unlocks` is now also used to unlock solutions for user viewing
+
+**Deployment**
+
+- Added `PRESET_ADMIN_NAME`, `PRESET_ADMIN_EMAIL`, `PRESET_ADMIN_PASSWORD`, and `PRESET_ADMIN_TOKEN` to `config.ini` for pre-creating an admin user
+  - Useful for automated deployments and ensuring a known admin token exists
+- Added `PRESET_CONFIGS` to `config.ini` for pre-setting server-side configs
+  - Useful for configuring CTFd without completing setup or using the API
+- Added `EMAIL_CONFIRMATION_REQUIRE_INTERACTION` to `config.ini` to require additional interaction for email confirmation links
+  - Improves compatibility with certain anti-phishing defenses
+- Email confirmation is now enabled whenever email sending is available
+- Replaced `pybluemonday` with `nh3` (due to breakage in Python modules written in Golang)
+- Updated Flask to 2.1.3
+- Updated Werkzeug to 2.2.3
+
+**Plugins**
+
+- Challenge Type Plugins should now return a `ChallengeResponse` object instead of a `(status, message)` tuple
+  - Existing behavior is supported until CTFd 4.0
+- Added `BaseChallenge.partial` for challenge classes to indicate partial solves (for `all` flag logic)
+
+**Themes**
+
+- The `core-beta` theme has been promoted to `core`
+  - The `core-beta` repo has been replaced with the [core-theme repo](https://github.com/CTFd/core-theme). Future changes should be made in the main CTFd repo and these changes will be copied over to the core-theme repo.
+- The previous `core` theme has been deprecated and renamed `core-deprecated`
+
+# 3.7.7 / 2025-04-14
+
+**General**
+
+- Added ability to denylist/blacklist email domains from registering
+- Hints can now include an optional title that is shown to users before unlocking
+
+**Admin Panel**
+
+- Challenge files now show the stored sha1sum
+
+**Deployment**
+
+- Fixed issue where the `/api/v1/scoreboard/top/<count>` endpoint wouldn't cache different count values properly
+- The `/api/v1/scoreboard/top/<count>`endpoint will now return at most the top 50 accounts
+- Updated gunicorn to 23.0.0
+- Updated Jinja2 to 3.1.6
+
+# 3.7.6 / 2025-02-19
+
+**Security**
+
+- Added the `TRUSTED_HOSTS` configuration to more easily restrict CTFd to valid host names
+
+**General**
+
+- Added language switcher on the main navigation bar
+- Removed autocomplete=off from login, register, and reset password forms
+
+**Plugins**
+
+- Challenge type plugins can now raise `ChallengeCreateException` or `ChallengeUpdateException` to show input validation messages
+- Plugins specifying a config route will now appear in the Admin Panel under the Plugins section
+
+**Translations**
+
+- Add Romanian, Greek, Finnish, Slovenian, Swedish languages
+
+# 3.7.5 / 2024-12-27
+
+**Security**
+
+- Change confirmation and reset password emails to be single use instead of only expiring in 30 minutes
+
+**General**
+
+- Fix issue where users could set their own bracket after registration
+- If a user or team do not have a password set we allow setting a password without providing a previous password confirmation
+- Fix issue where dynamic challenges did not return their attribution over the API
+- Language selection is now available in the main theme navigation bar
+
+**Admin Panel**
+
+- A point breakdown graph showing the amount of challenge points allocated to each category has been added to the Admin Panel
+- Bracket ID and Bracket Name have been added to CSV scoreboard exports
+- Fix issue with certain interactions in the Media Library
+
+**API**
+
+- Swagger specification has been updated to properly validate
+- `/api/v1/flags/types` and `/api/v1/flags/types/<type_name>` have been seperated into two seperate controllers
+
+**Deployment**
+
+- IP Tracking has been updated to only occur if we have not seen the IP before or on state changing methods
+- Bump dependencies for `cmarkgfm` and `jinja2`
+
+# 3.7.4 / 2024-10-08
+
+**Security**
+
+- Validate email length to be less than 320 chars to prevent Denial of Service in email validation
+
+**General**
+
+- Add attribution field to Challenges
+
+**Admin Panel**
+
+- Display brackets in the Admin Panel
+
+**Themes**
+
+- Display brackets for users/teams on listing pages and public/private pages
+- Fix miscellaneous issues in core-beta
+- Adds dark mode to core-beta theme
+- Fix issue with long titles in challenge buttons
+- Adds `type` and `extra` arguments to `Assets.js()` and default `defer` to `False` as `type="module"` automatically implies defer
+- ECharts behavior for some graphs in core-beta can now be overriden using the following window objects `window.scoreboardChartOptions`, `window.teamScoreGraphChartOptions`, `window.userScoreGraphChartOptions`
+- Update the scoreboard score graph to reflect the current active bracket changes
+
+**Deployment**
+
+- Add `.gitattributes` to keep LF line endings on .sh files under Windows
+- Fix issues where None values are not cast to empty string
+- Bump dependencies for `pybluemonday`, `requests`, and `boto3`
+
+# 3.7.3 / 2024-07-24
+
+**Security**
+
+- Fix issue where challenge solves and account names could be seen despite accounts not being visible
+
+**Admin Panel**
+
+- Add a Localization section in the Config Panel
+- Add the Default Language config in the Admin Panel to allow admins to configure a default language
+  - Previously CTFd would default to an auto-detected language specified by the user's browser. This setting allows for that default to be set by the admin instead of auto-detected.
+
+**Translations**
+
+- Fix issue where Simplified Chinese would be used instead of Traditional Chinese
+- Update the language names for Simplified Chinese and Traditional Chinese for clarity
+- Update Vietnamese translation
+- Add Catalan translation
+
+# 3.7.2 / 2024-06-18
+
+**Security**
+
+- Patches an issue where on certain browsers flags could be leaked with admin interaction on a malicious page
+
+**API**
+
+- Disable returning 404s in listing pages with pagination
+  - Instead of returning 404 these pages will now return 200
+  - For API endpoints, the response will be a 200 with an empty listing instead of a 404
+
+**Deployment**
+
+- CTFd will now add the `Cross-Origin-Opener-Policy` response header to all responses with the default value of `same-origin-allow-popups`
+- Add `CROSS_ORIGIN_OPENER_POLICY` setting to control the `Cross-Origin-Opener-Policy` header
+
+# 3.7.1 / 2024-05-31
+
+**Admin Panel**
+
+- The styling of the Config Panel has been updated to better organize different settings
+- When switching user modes via the Admin Panel, all teams will now be removed
+- Fix issues where importing CSVs comprised of JSON entries would fail
+- Add `serializeJSON` function back into the Admin Panel
+
+**API**
+
+- The `/api/v1/exports/raw` API endpoint has been added to allow for exports to be generated via the API
+- Update the ScoreboardDetail endpoint (`/api/v1/scoreboard/top/<count>`) to return account URL, score, and bracket
+- Add a query parameter to ScoreboardDetail endpoint (`/api/v1/scoreboard/top/<count>`) to filter by bracket
+- Return `function` field for DynamicValue challenges data read
+
+**General**
+
+- Add Italian and Vietnamese languages
+- Switch to Crowdin for translations
+
+**Themes**
+
+- Add `defer` parameter to `Assets.js()` to allow controlling the defer attribute of inserted `<script>` tags
+
+**Plugins**
+
+- Plugins can now define a `config` entry in `config.json` to define a template to embed into the Config Panel
+- Add the `make_cache_key_with_query_string` to allow for caching based on query string arguments
+
+**Deployment**
+
+- MariaDB version provided in docker-compose.yml has been updated to `10.11`
+- Static assets (theme files, static files) will now return a Cache-Control header with a `max-age` of 3600
+- Add the `/debug` endpoint to show CTFd debugging information
+  - Currently showing the IP address that CTFd is seeing for the request and the request headers
+  - `/debug` will only be enabled if the `SAFE_MODE` config is enabled
+
+# 3.7.0 / 2024-02-26
+
+**General**
+
+- Add ability for users to generate social share links after solving a challenge
+  - After solving a challenge users can click a "share" button which can generate Twitter, Facebook, LinkedIn links
+- Add Scoreboard Brackets feature to have multiple sub-scoreboards within the main scoreboard
+  - Admins can add a bracket for users/teams which must be selected during the registration process. Within the scoreboard, accounts can be organized by bracket in addition to seeing the full list
+- Calculate a files sha1sum on upload for future local change detection purposes
+- Allow API clients (CTFd, ctfcli, etc) to control the location of an uploaded file
+- Allow challenge CSVs to contain JSON in the hints and flags columns so that admins can import more complex data
+- Fix issue where hints could not be unlocked during freeze time
+- Use the CTF name to be the default index page name
+
+**API**
+
+- Add `bracket_name` and `bracket_id` to `/api/v1/scoreboard`
+- Add `sha1sum` to `GET /api/v1/files`
+- Add `location` to `POST /api/v1/files`
+
+**Plugins**
+
+- Add ability to control the link target for a page (i.e. open in a new tab) via `register_user_page_menu_bar()`
+- Add `uploaders.open()` to open a file from an uploader
+- Adds the optional path field to the `Uploaders.upload()` method to control where files get uploaded to
+
+**Themes**
+
+- Allow customization of the `<meta>` tag & page title via template files
+- Exposes `unix_time_to_utc()` as a Jinja filter
+
+**Admin Panel**
+
+- Migrate Admin Panel from webpack to Vite
+- Adds Alpine to Admin Panel for plugins to use to add interactivity
+
+**Deployment**
+
+- Update base image to `python:3.11-slim-bookworm`
+- Added prefix option to S3 uploader under `AWS_S3_CUSTOM_PREFIX`
+  - This allows CTFd to store files under a folder of an S3 bucket
+- Raise exception if a built-in config is defined in the extra config section in config.ini
+- CTFd will wait for an import to complete before starting
+  - This tries to address issues where starting CTFd during an import can interfere with the import
+- Add Pillow version 10.1.0 as a dependency
+- Update boto3 version to 1.34.39
+- Update isort version to 5.13.2
+- Update dataset version to 1.6.2
+
+# 3.6.1 / 2023-12-12
+
+**Security**
+
+- Fix an issue where users could bypass Score Visibility and see a user's score/place when not allowed by Admins
+
+**General**
+
+- Add Slovak, Japanese, Brazillian Portugese translations
+- Update Chinese translation
+- Fix Dynamic challenges not showing the Next Challenge
+
+**API**
+
+- Add `email` as a `field` to query to `/api/v1/users` and `/api/v1/teams` to allow searching via email address for Admins
+- Accept multipart/form-data with token auth for file upload to `/api/v1/files`
+- Always allow a user/team to see their own score when querying their own self endpoints regardless of Score Visibility
+  - The rationale for this is that a user can always calculate their score regardless of any setting because they can simply sum all of their challenges
+
+**Admin Panel**
+
+- Fix an issue where polymorphic tables (i.e. solves) could not be CSV exported correctly
+
+**Themes**
+
+- When using core-beta, `meta` tags can now be inserted into pages from `render_template()` calls
+
+**Deployment**
+
+- Fix an issue where S3 uploads would not work if the server's timezone was not set to UTC
+- Update gevent dependency to `23.9.1`
+
+# 3.6.0 / 2023-08-21
+
+**General**
+
+- Translations support for Spanish, Polish, German, Chinese
+  - If you wish to fix or maintain a language translation please join at CTFd's public [POEditor page](https://poeditor.com/join/project/p5jhdcrlm7).
+- Add a total user registration limit option
+- Dynamic value challenges can now choose between linear and logarithmic decay functions
+- Free hints are now visible by unauthenticated users if challenges are visible by unauthenticated users
+- Fix issue where a custom field named affiliation or website prevented registration
+  - No longer special case "Affiliation" or "Website" as custom field titles. Previously custom fields with those titles would set the user's affiliation or website but this behavior has been removed.
+
+**Admin Panel**
+
+- Challenge Preview has been improved to support arbitrary custom themes
+- Long flags in the Admin Panel are now truncated but can be expanded and copied
+- Add UI to mark incorrect submissions as correct
+  - Add the `discard` type for submissions
+  - Add `PATCH /api/v1/submissions/[submission_id]` to mark submissions as correct
+- Add section in the Config Panel to configure `HTML_SANITIZATION`
+  - Setting `HTML_SANITIZATION` to true in `config.ini` cannot be disabled via the Admin Panel
+- Add wildcard for email whitelisting
+
+**Deployment**
+
+- Add new envvar `SKIP_DB_PING` to instruct the CTFd Docker image to not test if the database server is available
+- Add new config `AWS_S3_ADDRESSING_STYLE`
+  - Support selecting the [S3 addressing style](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-bucket-intro.html#access-bucket-console-ex). It defaults to "auto" as when it's not set, but can also be set to `virtual` or `path`
+- Add new config `AWS_S3_CUSTOM_DOMAIN` which specifies a domain that replaces the default one in presigned download URLs
+  - Required for certain S3 implementations
+- Flask and Werkzeug have been upgraded to v2.0.3. Other dependencies have been updated for compatability.
+- SQLAlchemy has been updated to v1.4.
+- PyMySQL has been upgraded to v1.0.2.
+- The `flask` cli tool is now offered as an alternative to the `manage.py` script.
+- gzip compression is now enabled in the provided nginx configuration
+
+**API**
+
+- API tokens now have a description field
+- API tokens now start with a `ctfd_` prefix to make them easier to identify
+- `GET /api/v1/hints/[hint_id]` will now return hint information for free hints for unauthenticated users if challenges are visible
+
+**Themes**
+
+- core-beta is now provided in all CTFd instances
+- core-beta is the default theme during setup
+
 # 3.5.3 / 2023-06-08
 
 **Deployment**

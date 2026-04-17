@@ -8,6 +8,7 @@ from flask import send_file, send_from_directory, url_for
 
 from CTFd.utils.config.pages import get_pages
 from CTFd.utils.decorators import admins_only as admins_only_wrapper
+from CTFd.utils.plugins import override_function as utils_override_function
 from CTFd.utils.plugins import override_template as utils_override_template
 from CTFd.utils.plugins import (
     register_admin_script as utils_register_admin_plugin_script,
@@ -18,7 +19,7 @@ from CTFd.utils.plugins import (
 from CTFd.utils.plugins import register_script as utils_register_plugin_script
 from CTFd.utils.plugins import register_stylesheet as utils_register_plugin_stylesheet
 
-Menu = namedtuple("Menu", ["title", "route"])
+Menu = namedtuple("Menu", ["title", "route", "link_target"])
 
 
 def register_plugin_assets_directory(app, base_path, admins_only=False, endpoint=None):
@@ -55,7 +56,7 @@ def register_plugin_asset(app, asset_path, admins_only=False, endpoint=None):
         endpoint = asset_path.replace("/", ".")
 
     def asset_handler():
-        return send_file(asset_path)
+        return send_file(asset_path, max_age=3600)
 
     if admins_only:
         asset_handler = admins_only_wrapper(asset_handler)
@@ -70,6 +71,16 @@ def override_template(*args, **kwargs):
     e.g. override_template('scoreboard.html', '<h1>scores</h1>')
     """
     utils_override_template(*args, **kwargs)
+
+
+def override_function(*args, **kwargs):
+    """
+    Registers an override for a specific function.
+    :param args:
+    :param kwargs:
+    :return:
+    """
+    utils_override_function(*args, **kwargs)
 
 
 def register_plugin_script(*args, **kwargs):
@@ -106,7 +117,7 @@ def register_admin_plugin_stylesheet(*args, **kwargs):
     utils_register_admin_plugin_stylesheet(*args, **kwargs)
 
 
-def register_admin_plugin_menu_bar(title, route):
+def register_admin_plugin_menu_bar(title, route, link_target=None):
     """
     Registers links on the Admin Panel menubar/navbar
 
@@ -114,7 +125,7 @@ def register_admin_plugin_menu_bar(title, route):
     :param route: A string that is the href used by the link
     :return:
     """
-    am = Menu(title=title, route=route)
+    am = Menu(title=title, route=route, link_target=link_target)
     app.admin_plugin_menu_bar.append(am)
 
 
@@ -127,7 +138,7 @@ def get_admin_plugin_menu_bar():
     return app.admin_plugin_menu_bar
 
 
-def register_user_page_menu_bar(title, route):
+def register_user_page_menu_bar(title, route, link_target=None):
     """
     Registers links on the User side menubar/navbar
 
@@ -135,7 +146,7 @@ def register_user_page_menu_bar(title, route):
     :param route: A string that is the href used by the link
     :return:
     """
-    p = Menu(title=title, route=route)
+    p = Menu(title=title, route=route, link_target=link_target)
     app.plugin_menu_bar.append(p)
 
 
@@ -151,7 +162,7 @@ def get_user_page_menu_bar():
             route = p.route
         else:
             route = url_for("views.static_html", route=p.route)
-        pages.append(Menu(title=p.title, route=route))
+        pages.append(Menu(title=p.title, route=route, link_target=p.link_target))
     return pages
 
 
@@ -194,6 +205,7 @@ def init_plugins(app):
 
     app.admin_plugin_menu_bar = []
     app.plugin_menu_bar = []
+    app.overridden_functions = {}
     app.plugins_dir = os.path.dirname(__file__)
 
     if app.config.get("SAFE_MODE", False) is False:

@@ -26,6 +26,19 @@
                 <div class="col-md-12">
                   <div class="form-group">
                     <label>
+                      Title<br />
+                      <small>Content displayed before hint unlocking</small>
+                    </label>
+                    <input
+                      type="text"
+                      class="form-control"
+                      name="title"
+                      ref="title"
+                    />
+                  </div>
+
+                  <div class="form-group">
+                    <label>
                       Hint<br />
                       <small>Markdown &amp; HTML are supported</small>
                     </label>
@@ -100,47 +113,62 @@ export default {
   name: "HintCreationForm",
   props: {
     challenge_id: Number,
-    hints: Array
+    hints: Array,
   },
-  data: function() {
+  data: function () {
     return {
       cost: 0,
-      selectedHints: []
+      selectedHints: [],
     };
   },
   methods: {
-    getCost: function() {
+    clearForm: function () {
+      this.$refs.title.value = "";
+      if (this.$refs.content && this.$refs.content.mde) {
+        this.$refs.content.mde.value("");
+        this.$refs.content.mde.codemirror.refresh();
+      }
+      this.$refs.content.value = "";
+      this.cost = 0;
+      this.selectedHints = [];
+    },
+    getCost: function () {
       return this.cost || 0;
     },
-    getContent: function() {
+    getContent: function () {
       return this.$refs.content.value;
     },
-    submitHint: function() {
+    getTitle: function () {
+      return this.$refs.title.value;
+    },
+    submitHint: function () {
       let params = {
         challenge_id: this.$props.challenge_id,
         content: this.getContent(),
         cost: this.getCost(),
-        requirements: { prerequisites: this.selectedHints }
+        title: this.getTitle(),
+        requirements: { prerequisites: this.selectedHints },
       };
       CTFd.fetch("/api/v1/hints", {
         method: "POST",
         credentials: "same-origin",
         headers: {
           Accept: "application/json",
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify(params)
+        body: JSON.stringify(params),
       })
-        .then(response => {
+        .then((response) => {
           return response.json();
         })
-        .then(response => {
+        .then((response) => {
           if (response.success) {
             this.$emit("refreshHints", this.$options.name);
+            this.clearForm();
           }
         });
-    }
-  }
+    },
+  },
 };
 </script>
 

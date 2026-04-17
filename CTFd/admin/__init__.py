@@ -28,11 +28,14 @@ from CTFd.admin import teams  # noqa: F401,I001
 from CTFd.admin import users  # noqa: F401,I001
 from CTFd.cache import (
     cache,
+    clear_all_team_sessions,
+    clear_all_user_sessions,
     clear_challenges,
     clear_config,
     clear_pages,
     clear_standings,
 )
+from CTFd.constants.setup import DEFAULTS
 from CTFd.models import (
     Awards,
     Challenges,
@@ -49,7 +52,13 @@ from CTFd.models import (
 )
 from CTFd.utils import config as ctf_config
 from CTFd.utils import get_app_config, get_config, set_config
-from CTFd.utils.csv import dump_csv, load_challenges_csv, load_teams_csv, load_users_csv
+from CTFd.utils.csv import (
+    dump_csv,
+    load_challenges_csv,
+    load_teams_csv,
+    load_users_csv,
+    load_users_teams_csv,
+)
 from CTFd.utils.decorators import admins_only
 from CTFd.utils.exports import background_import_ctf
 from CTFd.utils.exports import export_ctf as export_ctf_util
@@ -145,6 +154,7 @@ def import_csv():
         "challenges": load_challenges_csv,
         "users": load_users_csv,
         "teams": load_teams_csv,
+        "users+teams": load_users_teams_csv,
     }
 
     loader = loaders[csv_type]
@@ -166,8 +176,8 @@ def export_csv():
     return send_file(
         output,
         as_attachment=True,
-        cache_timeout=-1,
-        attachment_filename="{name}-{table}.csv".format(
+        max_age=-1,
+        download_name="{name}-{table}.csv".format(
             name=ctf_config.ctf_name(), table=table
         ),
     )
@@ -181,6 +191,11 @@ def config():
 
     configs = Configs.query.all()
     configs = {c.key: get_config(c.key) for c in configs}
+
+    # Load in defaults that would normally exist on UI setup
+    for k, v in DEFAULTS.items():
+        if k not in configs:
+            configs[k] = v
 
     themes = ctf_config.get_themes()
 
@@ -240,6 +255,13 @@ def reset():
             Awards.query.delete()
             Unlocks.query.delete()
             Tracking.query.delete()
+
+        if data.get("user_mode") == "users":
+            db.session.query(Users).update({Users.team_id: None})
+            Teams.query.delete()
+
+            clear_all_user_sessions()
+            clear_all_team_sessions()
 
         if require_setup:
             set_config("setup", False)

@@ -1,14 +1,14 @@
 from sqlalchemy.sql.expression import union_all
 
 from CTFd.cache import cache
-from CTFd.models import Awards, Challenges, Solves, Teams, Users, db
+from CTFd.models import Awards, Brackets, Challenges, Solves, Teams, Users, db
 from CTFd.utils import get_config
 from CTFd.utils.dates import unix_time_to_utc
 from CTFd.utils.modes import get_model
 
 
 @cache.memoize(timeout=60)
-def get_standings(count=None, admin=False, fields=None):
+def get_standings(count=None, bracket_id=None, admin=False, fields=None):
     """
     Get standings as a list of tuples containing account_id, name, and score e.g. [(account_id, team_name, score)].
 
@@ -85,12 +85,15 @@ def get_standings(count=None, admin=False, fields=None):
                 Model.id.label("account_id"),
                 Model.oauth_id.label("oauth_id"),
                 Model.name.label("name"),
+                Model.bracket_id.label("bracket_id"),
+                Brackets.name.label("bracket_name"),
                 Model.hidden,
                 Model.banned,
                 sumscores.columns.score,
                 *fields,
             )
             .join(sumscores, Model.id == sumscores.columns.account_id)
+            .join(Brackets, isouter=True)
             .order_by(
                 sumscores.columns.score.desc(),
                 sumscores.columns.date.asc(),
@@ -103,10 +106,13 @@ def get_standings(count=None, admin=False, fields=None):
                 Model.id.label("account_id"),
                 Model.oauth_id.label("oauth_id"),
                 Model.name.label("name"),
+                Model.bracket_id.label("bracket_id"),
+                Brackets.name.label("bracket_name"),
                 sumscores.columns.score,
                 *fields,
             )
             .join(sumscores, Model.id == sumscores.columns.account_id)
+            .join(Brackets, isouter=True)
             .filter(Model.banned == False, Model.hidden == False)
             .order_by(
                 sumscores.columns.score.desc(),
@@ -115,9 +121,11 @@ def get_standings(count=None, admin=False, fields=None):
             )
         )
 
-    """
-    Only select a certain amount of users if asked.
-    """
+    # Filter on a bracket if asked
+    if bracket_id is not None:
+        standings_query = standings_query.filter(Model.bracket_id == bracket_id)
+
+    # Only select a certain amount of users if asked.
     if count is None:
         standings = standings_query.all()
     else:
@@ -127,7 +135,7 @@ def get_standings(count=None, admin=False, fields=None):
 
 
 @cache.memoize(timeout=60)
-def get_team_standings(count=None, admin=False, fields=None):
+def get_team_standings(count=None, bracket_id=None, admin=False, fields=None):
     if fields is None:
         fields = []
     scores = (
@@ -177,12 +185,15 @@ def get_team_standings(count=None, admin=False, fields=None):
                 Teams.id.label("team_id"),
                 Teams.oauth_id.label("oauth_id"),
                 Teams.name.label("name"),
+                Teams.bracket_id.label("bracket_id"),
+                Brackets.name.label("bracket_name"),
                 Teams.hidden,
                 Teams.banned,
                 sumscores.columns.score,
                 *fields,
             )
             .join(sumscores, Teams.id == sumscores.columns.team_id)
+            .join(Brackets, isouter=True)
             .order_by(
                 sumscores.columns.score.desc(),
                 sumscores.columns.date.asc(),
@@ -195,10 +206,13 @@ def get_team_standings(count=None, admin=False, fields=None):
                 Teams.id.label("team_id"),
                 Teams.oauth_id.label("oauth_id"),
                 Teams.name.label("name"),
+                Teams.bracket_id.label("bracket_id"),
+                Brackets.name.label("bracket_name"),
                 sumscores.columns.score,
                 *fields,
             )
             .join(sumscores, Teams.id == sumscores.columns.team_id)
+            .join(Brackets, isouter=True)
             .filter(Teams.banned == False)
             .filter(Teams.hidden == False)
             .order_by(
@@ -207,6 +221,9 @@ def get_team_standings(count=None, admin=False, fields=None):
                 sumscores.columns.id.asc(),
             )
         )
+
+    if bracket_id is not None:
+        standings_query = standings_query.filter(Teams.bracket_id == bracket_id)
 
     if count is None:
         standings = standings_query.all()
@@ -217,7 +234,7 @@ def get_team_standings(count=None, admin=False, fields=None):
 
 
 @cache.memoize(timeout=60)
-def get_user_standings(count=None, admin=False, fields=None):
+def get_user_standings(count=None, bracket_id=None, admin=False, fields=None):
     if fields is None:
         fields = []
     scores = (
@@ -268,12 +285,15 @@ def get_user_standings(count=None, admin=False, fields=None):
                 Users.oauth_id.label("oauth_id"),
                 Users.name.label("name"),
                 Users.team_id.label("team_id"),
+                Users.bracket_id.label("bracket_id"),
+                Brackets.name.label("bracket_name"),
                 Users.hidden,
                 Users.banned,
                 sumscores.columns.score,
                 *fields,
             )
             .join(sumscores, Users.id == sumscores.columns.user_id)
+            .join(Brackets, isouter=True)
             .order_by(
                 sumscores.columns.score.desc(),
                 sumscores.columns.date.asc(),
@@ -287,10 +307,13 @@ def get_user_standings(count=None, admin=False, fields=None):
                 Users.oauth_id.label("oauth_id"),
                 Users.name.label("name"),
                 Users.team_id.label("team_id"),
+                Users.bracket_id.label("bracket_id"),
+                Brackets.name.label("bracket_name"),
                 sumscores.columns.score,
                 *fields,
             )
             .join(sumscores, Users.id == sumscores.columns.user_id)
+            .join(Brackets, isouter=True)
             .filter(Users.banned == False, Users.hidden == False)
             .order_by(
                 sumscores.columns.score.desc(),
@@ -298,6 +321,9 @@ def get_user_standings(count=None, admin=False, fields=None):
                 sumscores.columns.id.asc(),
             )
         )
+
+    if bracket_id is not None:
+        standings_query = standings_query.filter(Users.bracket_id == bracket_id)
 
     if count is None:
         standings = standings_query.all()

@@ -1,4 +1,10 @@
-from tests.helpers import create_ctfd, destroy_ctfd, login_as_user
+from tests.helpers import (
+    create_ctfd,
+    destroy_ctfd,
+    gen_page,
+    login_as_user,
+    register_user,
+)
 
 
 def test_previewing_pages_works():
@@ -66,4 +72,24 @@ def test_previewing_page_with_format_works():
         resp = r.get_data(as_text=True)
         assert "<h1>content_testing</h1>" in resp
 
+    destroy_ctfd(app)
+
+
+def test_pages_with_link_target():
+    """Test that target=_blank links show in public interface"""
+    app = create_ctfd(ctf_theme="core")
+    with app.app_context():
+        gen_page(
+            app.db,
+            title="Title",
+            route="this-is-a-route",
+            content="This is some HTML",
+            link_target="_blank",
+        )
+        register_user(app)
+        client = login_as_user(app)
+        with client.session_transaction():
+            r = client.get("/")
+            html = r.get_data(as_text=True)
+            assert "_blank" in html
     destroy_ctfd(app)

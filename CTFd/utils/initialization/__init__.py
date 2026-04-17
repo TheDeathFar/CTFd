@@ -9,8 +9,9 @@ from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
 from CTFd.cache import clear_user_recent_ips
 from CTFd.exceptions import UserNotFoundException, UserTokenExpiredException
+from CTFd.exceptions.email import UserResetPasswordTokenInvalidException
 from CTFd.models import Tracking, db
-from CTFd.utils import config, get_config, import_in_progress, markdown
+from CTFd.utils import config, get_app_config, get_config, import_in_progress, markdown
 from CTFd.utils.config import (
     can_send_mail,
     ctf_logo,
@@ -20,12 +21,13 @@ from CTFd.utils.config import (
     is_setup,
 )
 from CTFd.utils.config.pages import get_pages
-from CTFd.utils.dates import isoformat, unix_time, unix_time_millis
+from CTFd.utils.dates import isoformat, unix_time, unix_time_millis, unix_time_to_utc
 from CTFd.utils.events import EventManager, RedisEventManager
 from CTFd.utils.humanize.words import pluralize
 from CTFd.utils.modes import generate_account_url, get_mode_as_word
 from CTFd.utils.plugins import (
     get_configurable_plugins,
+    get_menubar_plugins,
     get_registered_admin_scripts,
     get_registered_admin_stylesheets,
     get_registered_scripts,
@@ -33,12 +35,17 @@ from CTFd.utils.plugins import (
 )
 from CTFd.utils.security.auth import login_user, logout_user, lookup_user_token
 from CTFd.utils.security.csrf import generate_nonce
+from CTFd.utils.security.email import (
+    generate_password_reset_token,
+    verify_reset_password_token,
+)
 from CTFd.utils.user import (
     authed,
     get_current_team_attrs,
     get_current_user_attrs,
     get_current_user_recent_ips,
     get_ip,
+    get_locale,
     is_admin,
 )
 
@@ -53,6 +60,7 @@ def init_template_filters(app):
     app.jinja_env.filters["markdown"] = markdown
     app.jinja_env.filters["unix_time"] = unix_time
     app.jinja_env.filters["unix_time_millis"] = unix_time_millis
+    app.jinja_env.filters["unix_time_to_utc"] = unix_time_to_utc
     app.jinja_env.filters["isoformat"] = isoformat
     app.jinja_env.filters["pluralize"] = pluralize
 
@@ -61,11 +69,12 @@ def init_template_globals(app):
     from CTFd.constants import JINJA_ENUMS  # noqa: I001
     from CTFd.constants.assets import Assets
     from CTFd.constants.config import Configs
+    from CTFd.constants.languages import Languages
     from CTFd.constants.plugins import Plugins
     from CTFd.constants.sessions import Session
     from CTFd.constants.static import Static
-    from CTFd.constants.users import User
     from CTFd.constants.teams import Team
+    from CTFd.constants.users import User
     from CTFd.forms import Forms
     from CTFd.utils.config.visibility import (
         accounts_visible,
@@ -82,6 +91,7 @@ def init_template_globals(app):
     app.jinja_env.globals.update(get_ctf_name=ctf_name)
     app.jinja_env.globals.update(get_ctf_logo=ctf_logo)
     app.jinja_env.globals.update(get_ctf_theme=ctf_theme)
+    app.jinja_env.globals.update(get_menubar_plugins=get_menubar_plugins)
     app.jinja_env.globals.update(get_configurable_plugins=get_configurable_plugins)
     app.jinja_env.globals.update(get_registered_scripts=get_registered_scripts)
     app.jinja_env.globals.update(get_registered_stylesheets=get_registered_stylesheets)
@@ -108,6 +118,7 @@ def init_template_globals(app):
     app.jinja_env.globals.update(get_current_user_attrs=get_current_user_attrs)
     app.jinja_env.globals.update(get_current_team_attrs=get_current_team_attrs)
     app.jinja_env.globals.update(get_ip=get_ip)
+    app.jinja_env.globals.update(get_locale=get_locale)
     app.jinja_env.globals.update(Assets=Assets)
     app.jinja_env.globals.update(Configs=Configs)
     app.jinja_env.globals.update(Plugins=Plugins)
@@ -116,6 +127,7 @@ def init_template_globals(app):
     app.jinja_env.globals.update(Forms=Forms)
     app.jinja_env.globals.update(User=User)
     app.jinja_env.globals.update(Team=Team)
+    app.jinja_env.globals.update(Languages=Languages)
 
     # Add in JinjaEnums
     # The reason this exists is that on double import, JinjaEnums are not reinitialized
@@ -208,6 +220,7 @@ def init_request_processors(app):
                 "views.setup",
                 "views.integrations",
                 "views.themes",
+                "views.themes_beta",
                 "views.files",
                 "views.healthcheck",
                 "views.robots",
@@ -218,7 +231,7 @@ def init_request_processors(app):
 
     @app.before_request
     def tracker():
-        if request.endpoint == "views.themes":
+        if request.endpoint in ("views.themes", "views.themes_beta"):
             return
 
         if import_in_progress():
@@ -232,7 +245,12 @@ def init_request_processors(app):
             ip = get_ip()
 
             track = None
-            if (ip not in user_ips) or (request.method != "GET"):
+            if ip not in user_ips or request.method in (
+                "POST",
+                "PATCH",
+                "PUT",
+                "DELETE",
+            ):
                 track = Tracking.query.filter_by(
                     ip=get_ip(), user_id=session["id"]
                 ).first()
@@ -255,7 +273,7 @@ def init_request_processors(app):
 
     @app.before_request
     def banned():
-        if request.endpoint == "views.themes":
+        if request.endpoint in ("views.themes", "views.themes_beta"):
             return
 
         if authed():
@@ -280,40 +298,104 @@ def init_request_processors(app):
                 )
 
     @app.before_request
+    def change_password():
+        if request.endpoint in (
+            "views.themes",
+            "views.themes_beta",
+            "auth.logout",
+            "auth.reset_password",
+        ):
+            return
+
+        if authed():
+            user = get_current_user_attrs()
+
+            if user and user.change_password:
+                reset_token = session.get("reset_password")
+                valid = False
+
+                if reset_token:
+                    try:
+                        verify_reset_password_token(reset_token)
+                        valid = True
+                    except UserResetPasswordTokenInvalidException:
+                        session.pop("reset_password")
+                        valid = False
+
+                if not valid:
+                    reset_token = generate_password_reset_token(user.email)
+                    session["reset_password"] = reset_token
+
+                return redirect(url_for("auth.reset_password", data=reset_token))
+
+    @app.before_request
     def tokens():
         token = request.headers.get("Authorization")
-        if token and request.content_type == "application/json":
+        if token and (
+            request.is_json
+            # Specially allow multipart/form-data for file uploads
+            or (
+                request.endpoint == "api.files_files_list"
+                and request.method == "POST"
+                and request.mimetype == "multipart/form-data"
+            )
+        ):
             try:
                 token_type, token = token.split(" ", 1)
                 user = lookup_user_token(token)
             except UserNotFoundException:
-                abort(401)
+                abort(401, description="Your access token is invalid")
             except UserTokenExpiredException:
                 abort(401, description="Your access token has expired")
             except Exception:
-                abort(401)
+                abort(401, description="Invalid authorization header")
             else:
                 login_user(user)
 
     @app.before_request
     def csrf():
+        # TODO: CTFd 4.0 Consider reorganizing this function to only run on non safe methods
+        # Early exit: no CSRF for functions explicitly marked as bypassing CSRF
         try:
             func = app.view_functions[request.endpoint]
         except KeyError:
             abort(404)
         if hasattr(func, "_bypass_csrf"):
             return
+        # No CSRF for theme files using safe methods
+        safe_methods = (
+            "GET",
+            "HEAD",
+            "OPTIONS",
+            "TRACE",
+        )  # See RFC 7231, Section 4.2.1
+        if (
+            request.endpoint in ("views.themes", "views.themes_beta")
+            and request.method in safe_methods
+        ):
+            return
+        # No CSRF for API requests with an Authorization header
         if request.headers.get("Authorization"):
             return
+        # Ensure a session and CSRF nonce are present
         if not session.get("nonce"):
             session["nonce"] = generate_nonce()
-        if request.method not in ("GET", "HEAD", "OPTIONS", "TRACE"):
-            if request.content_type == "application/json":
+        if request.method not in safe_methods:
+            if request.is_json:
+                # API requests with JSON body => token in header
                 if session["nonce"] != request.headers.get("CSRF-Token"):
                     abort(403)
-            if request.content_type != "application/json":
+            else:
+                # Form submissions => token in form body
                 if session["nonce"] != request.form.get("nonce"):
                     abort(403)
+
+    @app.after_request
+    def response_headers(response):
+        response.headers["Cross-Origin-Opener-Policy"] = get_app_config(
+            "CROSS_ORIGIN_OPENER_POLICY", default="same-origin-allow-popups"
+        )
+        return response
 
     application_root = app.config.get("APPLICATION_ROOT")
     if application_root != "/":
