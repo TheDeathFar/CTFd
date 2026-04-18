@@ -1,0 +1,42 @@
+{% extends "challenge.html" %}
+
+{% block description %}
+    {{ challenge.html | safe }}
+    
+    <div class="row text-center pb-3">
+        <div id="dvp-panel" style="width: 100%;">
+            <!-- Панель когда окружение НЕ запущено -->
+            <div id="dvp-panel-stopped" class="card" style="width: 100%;">
+                <div class="card-body">
+                    <h5 class="card-title">DVP Окружение</h5>
+                    <p class="card-text">Нажмите кнопку чтобы запустить изолированное окружение.</p>
+                    <button class="btn btn-primary card-link" id="dvp-button-launch" type="button">
+                        🚀 Запустить окружение
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Панель когда окружение ЗАПУЩЕНО -->
+            <div id="dvp-panel-started" class="card" style="width: 100%; display: none;">
+                <div class="card-body">
+                    <h5 class="card-title">DVP Окружение</h5>
+                    <h6 class="card-subtitle mb-2 text-muted">
+                        Осталось времени: <span id="dvp-timer"></span>
+                    </h6>
+                    <h6 class="card-subtitle mb-2 text-muted">
+                        Доступ: <a id="dvp-url" href="#" target="_blank"></a>
+                    </h6>
+                    <p id="dvp-status-text" class="card-text"></p>
+                    <button type="button" class="btn btn-danger card-link" id="dvp-button-terminate">
+                        ⏹ Остановить
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="/plugins/ctfd_dvp/assets/view.js"></script>
+{% endblock %}

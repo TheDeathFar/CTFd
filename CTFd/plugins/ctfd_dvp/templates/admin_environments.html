@@ -1,0 +1,148 @@
+{% extends "admin/base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1>DVP Environments</h1>
+    
+    {% if mock_mode %}
+    <div class="alert alert-info">
+        <strong>🧪 MOCK MODE ACTIVE</strong> — данные эмулируются, реальный кластер не используется.
+    </div>
+    {% endif %}
+    
+    <div class="row">
+        <div class="col-md-12">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>User</th>
+                        <th>Challenge</th>
+                        <th>Project</th>
+                        <th>Subdomain</th>
+                        <th>Created</th>
+                        <th>Expires</th>
+                        <th>Time Left</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for env in environments %}
+                    <tr>
+                        <td>{{ env.id }}</td>
+                        <td>{{ env.user_name }}</td>
+                        <td>{{ env.challenge_name }}</td>
+                        <td><code>{{ env.project_name }}</code></td>
+                        <td>
+                            {% if env.subdomain %}
+                            <a href="https://{{ env.subdomain }}" target="_blank">{{ env.subdomain }}</a>
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td>{{ env.created_at }}</td>
+                        <td>{{ env.expires_at }}</td>
+                        <td>
+                            {% if env.time_remaining > 0 %}
+                                {{ (env.time_remaining // 60) }} min
+                            {% else %}
+                                <span class="text-danger">Expired</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                        <button class="btn btn-sm btn-success extend-btn" data-id="{{ env.id }}">
+                            +30 min
+                        </button>
+                            <button class="btn btn-sm btn-danger terminate-btn" data-id="{{ env.id }}">
+                                Terminate
+                            </button>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="9" class="text-center">No active environments</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    {% if mock_environments %}
+    <hr>
+    <h3>Mock Environments (in-memory)</h3>
+    <div class="row">
+        <div class="col-md-12">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Project</th>
+                        <th>User ID</th>
+                        <th>Challenge ID</th>
+                        <th>VMs</th>
+                        <th>Containers</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for env in mock_environments %}
+                    <tr>
+                        <td><code>{{ env.project }}</code></td>
+                        <td>{{ env.user_id }}</td>
+                        <td>{{ env.challenge_id }}</td>
+                        <td>{{ env.vms | join(', ') }}</td>
+                        <td>{{ env.containers | join(', ') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+document.querySelectorAll('.terminate-btn').forEach(btn => {
+    btn.addEventListener('click', async function() {
+        if (!confirm('Terminate this environment?')) return;
+        
+        const id = this.dataset.id;
+        const response = await fetch(`/api/v1/dvp/admin/environments/${id}/terminate`, {
+            method: 'DELETE',
+            headers: {
+                'CSRF-Token': CTFd.config.csrfNonce,  // ← ВОТ ТАК
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Failed to terminate');
+        }
+    });
+});
+
+// Extend
+document.querySelectorAll('.extend-btn').forEach(btn => {
+    btn.addEventListener('click', async function() {
+        if (!confirm('Extend this environment by 30 minutes?')) return;
+        
+        const id = this.dataset.id;
+        const response = await fetch(`/api/v1/dvp/admin/environments/${id}/extend`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'CSRF-Token': CTFd.config.csrfNonce
+            },
+            body: JSON.stringify({ extend_by: 1800 })
+        });
+        
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Failed to extend');
+        }
+    });
+});
+</script>
+{% endblock %}

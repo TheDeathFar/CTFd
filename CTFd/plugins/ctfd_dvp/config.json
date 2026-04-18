@@ -1,0 +1,10 @@
+{
+    "name": "CTFd DVP",
+    "route": "/dvp",
+    "mock_mode": true,
+    "dvp_api_url": "https://dvp.example.com/api",
+    "dvp_token": "",
+    "project_prefix": "student",
+    "ingress_domain": "polygon.local",
+    "default_timeout": 3600
+}

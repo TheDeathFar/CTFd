@@ -1,0 +1,90 @@
+{% extends "admin/challenges/create.html" %}
+
+{% block header %}
+    <div class="alert alert-info" role="alert">
+        🚀 Динамическая DVP-среда — каждый студент получает изолированное окружение в Deckhouse Virtualization Platform.
+    </div>
+{% endblock %}
+
+{% block value %}
+    <!-- Кастомные поля DVP -->
+    <div class="form-group">
+        <label for="environment_type">Тип окружения *</label>
+        <select class="form-control" name="environment_type" id="environment_type">
+            <option value="container">Контейнер (Pod)</option>
+            <option value="virtualmachine">Виртуальная машина (KubeVirt)</option>
+        </select>
+        <small class="form-text text-muted">
+            Контейнер — быстрый запуск, мало ресурсов. ВМ — полноценная ОС.
+        </small>
+    </div>
+
+    <div class="form-group">
+        <label for="image">Образ *</label>
+        <input type="text" class="form-control" name="image" required 
+               value="nginx:alpine" placeholder="nginx:alpine или quay.io/containerdisks/ubuntu:22.04">
+        <small class="form-text text-muted">
+            Для контейнеров — Docker-образ. Для ВМ — ContainerDisk образ.
+        </small>
+    </div>
+
+    <div id="container_options">
+        <div class="form-group">
+            <label for="ports">Порты</label>
+            <input type="text" class="form-control" name="ports" value="80" placeholder="80,443">
+            <small class="form-text text-muted">
+                Порты, которые будут открыты для доступа (только для контейнеров).
+            </small>
+        </div>
+    </div>
+
+    <div id="vm_options" style="display: none;">
+        <div class="form-group">
+            <label for="vm_cpu">CPU (ядер)</label>
+            <input type="number" class="form-control" name="vm_cpu" value="2" min="1" max="16">
+        </div>
+        <div class="form-group">
+            <label for="vm_memory">Память</label>
+            <input type="text" class="form-control" name="vm_memory" value="2Gi" placeholder="2Gi, 4Gi, 8Gi">
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label for="timeout">Время жизни (секунд)</label>
+        <input type="number" class="form-control" name="timeout" value="3600" min="300" max="86400">
+        <small class="form-text text-muted">3600 секунд = 1 час</small>
+    </div>
+
+    <div class="form-group">
+        <label for="subdomain_template">Шаблон поддомена</label>
+        <input type="text" class="form-control" name="subdomain_template" 
+               placeholder="user-{user_id}-challenge-{challenge_id}.polygon.local">
+        <small class="form-text text-muted">
+            Доступные переменные: {user_id}, {challenge_id}. Оставьте пустым для авто-генерации.
+        </small>
+    </div>
+
+    <!-- Стандартное поле value (очки) -->
+    <div class="form-group">
+        <label for="value">Очки *</label>
+        <input type="number" class="form-control" name="value" value="100" required>
+    </div>
+
+    <script>
+        document.getElementById('environment_type').addEventListener('change', function(e) {
+            const containerOpts = document.getElementById('container_options');
+            const vmOpts = document.getElementById('vm_options');
+            if (e.target.value === 'virtualmachine') {
+                containerOpts.style.display = 'none';
+                vmOpts.style.display = 'block';
+            } else {
+                containerOpts.style.display = 'block';
+                vmOpts.style.display = 'none';
+            }
+        });
+    </script>
+{% endblock %}
+
+{% block type %}
+    <input type="hidden" name="type" value="dvp_dynamic" id="chaltype">
+{% endblock %}

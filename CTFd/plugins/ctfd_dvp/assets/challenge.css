@@ -1,0 +1,157 @@
+.dvp-challenge-container {
+    padding: 20px;
+    background: #1a1e24;
+    border-radius: 8px;
+    margin: 15px 0;
+    border: 1px solid #2a303c;
+}
+
+.dvp-controls {
+    margin: 20px 0;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.dvp-launch-btn {
+    background: #27ae60;
+    border: none;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.dvp-launch-btn:hover {
+    background: #2ecc71;
+}
+
+.dvp-launch-btn:disabled {
+    background: #7f8c8d;
+    cursor: not-allowed;
+}
+
+.dvp-terminate-btn {
+    background: #e74c3c;
+    border: none;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.dvp-terminate-btn:hover {
+    background: #c0392b;
+}
+
+.dvp-loader {
+    color: #b0b8c4;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dvp-status {
+    margin-top: 20px;
+    padding: 15px;
+    background: #252b34;
+    border-radius: 6px;
+}
+
+.dvp-url-container,
+.dvp-timer-container,
+.dvp-flag-container,
+.dvp-status-container {
+    margin: 10px 0;
+    padding: 8px;
+    background: #1a1e24;
+    border-radius: 4px;
+}
+
+.dvp-url-container strong,
+.dvp-timer-container strong,
+.dvp-flag-container strong,
+.dvp-status-container strong {
+    color: #ffffff;
+    margin-right: 15px;
+}
+
+.dvp-url {
+    color: #3498db;
+    text-decoration: none;
+    font-family: monospace;
+    word-break: break-all;
+}
+
+.dvp-url:hover {
+    text-decoration: underline;
+    color: #5faee3;
+}
+
+.dvp-timer {
+    font-family: 'Courier New', monospace;
+    font-size: 1.2em;
+    font-weight: bold;
+    color: #ecf0f1;
+}
+
+.dvp-flag {
+    background: #2c3e50;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-family: monospace;
+    color: #f1c40f;
+}
+
+.dvp-status-text {
+    color: #2ecc71;
+    font-weight: 500;
+}
+
+.dvp-error {
+    margin-top: 15px;
+    padding: 12px;
+    background: rgba(231, 76, 60, 0.1);
+    color: #e74c3c;
+    border-radius: 4px;
+    border-left: 4px solid #e74c3c;
+}
+
+/* Светлая тема */
+.theme-light .dvp-challenge-container {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+}
+
+.theme-light .dvp-status {
+    background: #ffffff;
+    border: 1px solid #dee2e6;
+}
+
+.theme-light .dvp-url-container,
+.theme-light .dvp-timer-container,
+.theme-light .dvp-flag-container,
+.theme-light .dvp-status-container {
+    background: #f1f3f5;
+}
+
+.theme-light .dvp-url-container strong,
+.theme-light .dvp-timer-container strong,
+.theme-light .dvp-flag-container strong,
+.theme-light .dvp-status-container strong {
+    color: #2c3e50;
+}
+
+.theme-light .dvp-timer {
+    color: #2c3e50;
+}
+
+.theme-light .dvp-flag {
+    background: #e9ecef;
+    color: #e67e22;
+}
