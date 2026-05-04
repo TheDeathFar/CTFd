@@ -1,36 +1,25 @@
 {% extends "admin/challenges/update.html" %}
 
 {% block value %}
-    <!-- Те же кастомные поля, что и в create.html -->
     <div class="form-group">
-        <label for="environment_type">Тип окружения *</label>
-        <select class="form-control" name="environment_type" id="environment_type">
-            <option value="container" {% if challenge.environment_type == 'container' %}selected{% endif %}>Контейнер</option>
-            <option value="virtualmachine" {% if challenge.environment_type == 'virtualmachine' %}selected{% endif %}>Виртуальная машина</option>
-        </select>
+        <label for="git_repo_url">Git-репозиторий с Helm-чартом *</label>
+        <input type="text" class="form-control" name="git_repo_url" required 
+               value="{{ challenge.git_repo_url }}">
     </div>
 
     <div class="form-group">
-        <label for="image">Образ *</label>
-        <input type="text" class="form-control" name="image" required value="{{ challenge.image }}">
+        <label for="git_ref">Ветка / тег</label>
+        <input type="text" class="form-control" name="git_ref" value="{{ challenge.git_ref }}">
     </div>
 
-    <div id="container_options" {% if challenge.environment_type == 'virtualmachine' %}style="display: none;"{% endif %}>
-        <div class="form-group">
-            <label for="ports">Порты</label>
-            <input type="text" class="form-control" name="ports" value="{{ challenge.ports }}">
-        </div>
+    <div class="form-group">
+        <label for="chart_path">Путь к чарту</label>
+        <input type="text" class="form-control" name="chart_path" value="{{ challenge.chart_path }}">
     </div>
 
-    <div id="vm_options" {% if challenge.environment_type != 'virtualmachine' %}style="display: none;"{% endif %}>
-        <div class="form-group">
-            <label for="vm_cpu">CPU (ядер)</label>
-            <input type="number" class="form-control" name="vm_cpu" value="{{ challenge.vm_cpu }}">
-        </div>
-        <div class="form-group">
-            <label for="vm_memory">Память</label>
-            <input type="text" class="form-control" name="vm_memory" value="{{ challenge.vm_memory }}">
-        </div>
+    <div class="form-group">
+        <label for="helm_values">Дополнительные параметры Helm (JSON)</label>
+        <textarea class="form-control" name="helm_values" rows="6">{{ challenge.helm_values }}</textarea>
     </div>
 
     <div class="form-group">
@@ -40,27 +29,19 @@
 
     <div class="form-group">
         <label for="subdomain_template">Шаблон поддомена</label>
-        <input type="text" class="form-control" name="subdomain_template" value="{{ challenge.subdomain_template }}">
+        <input type="text" class="form-control" name="subdomain_template" 
+               value="{{ challenge.subdomain_template }}">
+    </div>
+
+    <div class="form-group">
+        <label for="check_script">Скрипт проверки (Bash)</label>
+        <textarea class="form-control" name="check_script" rows="6">{{ challenge.check_script }}</textarea>
     </div>
 
     <div class="form-group">
         <label for="value">Очки *</label>
         <input type="number" class="form-control" name="value" value="{{ challenge.value }}" required>
     </div>
-
-    <script>
-        document.getElementById('environment_type').addEventListener('change', function(e) {
-            const containerOpts = document.getElementById('container_options');
-            const vmOpts = document.getElementById('vm_options');
-            if (e.target.value === 'virtualmachine') {
-                containerOpts.style.display = 'none';
-                vmOpts.style.display = 'block';
-            } else {
-                containerOpts.style.display = 'block';
-                vmOpts.style.display = 'none';
-            }
-        });
-    </script>
 {% endblock %}
 
 {% block type %}

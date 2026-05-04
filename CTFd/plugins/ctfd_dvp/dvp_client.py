@@ -1,145 +1,213 @@
 """
-Клиент для работы с Deckhouse Virtualization Platform.
-Поддерживает два режима:
-- MOCK_MODE = True: эмуляция для локального тестирования
-- MOCK_MODE = False: реальные HTTP-запросы к DVP API
+Клиент для создания ArgoCD Application и проверки окружений.
 """
 
 import json
-import time
+import os
 from flask import current_app
 
 
 class DVPClient:
-    """
-    Универсальный клиент для Deckhouse DVP.
-    Автоматически переключается между реальным API и эмуляцией.
-    """
     
     def __init__(self, mock_mode=None):
-        """
-        Инициализация клиента.
-        Если mock_mode не указан, берётся из конфига CTFd.
-        """
-        self.mock_mode = mock_mode if mock_mode is not None else self._get_config("MOCK_MODE", True)
+        config_path = os.path.join(os.path.dirname(__file__), "config.json")
+        try:
+            with open(config_path, "r") as f:
+                config = json.load(f)
+            self.mock_mode = config.get("mock_mode", True)
+            self.project_prefix = config.get("project_prefix", "student")
+            self.ingress_domain = config.get("ingress_domain", "polygon.local")
+            self.default_timeout = config.get("default_timeout", 3600)
+            self.argocd_namespace = config.get("argocd_namespace", "argocd")
+        except:
+            self.mock_mode = True
+            self.project_prefix = "student"
+            self.ingress_domain = "polygon.local"
+            self.default_timeout = 3600
+            self.argocd_namespace = "argocd"
         
         if self.mock_mode:
             from .mock_data import get_mock_client
             self._mock = get_mock_client()
-            self._api_url = None
-            self._token = None
-            print("[DVP] 🧪 Running in MOCK MODE - no real cluster required")
+            self._k8s = None
+            print("[DVP] Running in MOCK MODE - no real cluster required")
         else:
-            self._api_url = self._get_config("DVP_API_URL", "https://dvp.example.com/api")
-            self._token = self._get_config("DVP_TOKEN", "")
+            try:
+                from kubernetes import client, config as k8s_config
+                k8s_config.load_incluster_config()
+                self._k8s = {
+                    "core_v1": client.CoreV1Api(),
+                    "custom_objects": client.CustomObjectsApi(),
+                    "networking_v1": client.NetworkingV1Api(), 
+                }
+                print("[DVP] Connected to Kubernetes API (ArgoCD mode)")
+            except Exception as e:
+                print(f"[DVP] Failed to connect to K8s: {e}")
+                self._k8s = None
             self._mock = None
-            print(f"[DVP] 🔌 Running in REAL MODE - connecting to {self._api_url}")
     
-    def _get_config(self, key, default=None):
-        """
-        Получить настройку из конфигурации CTFd.
-        Ищет параметры с префиксом DVP_.
-        """
-        try:
-            full_key = f"DVP_{key.upper()}" if not key.startswith("DVP_") else key.upper()
-            return current_app.config.get(full_key, default)
-        except RuntimeError:
-            # Вне контекста приложения (например, при импорте)
-            return default
-    
-    def _get_project_name(self, user_id, challenge_id):
-        """Генерирует стандартное имя проекта для студента"""
-        prefix = self._get_config("PROJECT_PREFIX", "student")
-        return f"{prefix}-{user_id}-challenge-{challenge_id}"
-    
-    # ========== Публичные методы (единый интерфейс) ==========
+    def _get_app_name(self, user_id, challenge_id):
+        return f"{self.project_prefix}-{user_id}-lab-{challenge_id}"
     
     def create_environment(self, user_id, challenge_id, config):
-        """
-        Создать полное окружение для студента.
+        app_name = self._get_app_name(user_id, challenge_id)
         
-        config должен содержать:
-        - environment_type: 'container' или 'virtualmachine'
-        - image: Docker-образ или ContainerDisk
-        - ports: строка с портами (для контейнеров)
-        - cpu: количество ядер (для ВМ)
-        - memory: объём памяти (для ВМ)
-        - subdomain: поддомен для доступа
-        
-        Возвращает:
-        {
-            "project": "student-1-challenge-5",
-            "subdomain": "user-1-challenge-5.polygon.local",
-            "url": "https://..."
+        values = {
+            "project": {"create": True, "name": app_name},
+            "ingress": {
+                "enabled": True,
+                "className": "nginx",
+                "hostBase": self.ingress_domain,
+                "clusterIssuer": "selfsigned"
+            },
+            "vm": {"namePrefix": "student"}
         }
-        """
-        project_name = config.get("project_name")
-        if not project_name:
-            project_name = self._get_project_name(user_id, challenge_id)
         
-        config["project_name"] = project_name
+        values_yaml = json.dumps(values, indent=2)
+        
+        application = {
+            "apiVersion": "argoproj.io/v1alpha1",
+            "kind": "Application",
+            "metadata": {
+                "name": app_name,
+                "namespace": self.argocd_namespace,
+                "finalizers": ["resources-finalizer.argocd.argoproj.io"]
+            },
+            "spec": {
+                "project": "default",
+                "source": {
+                    "repoURL": config.get("git_repo_url", ""),
+                    "targetRevision": config.get("git_ref", "main"),
+                    "path": config.get("chart_path", "."),
+                    "helm": {"values": values_yaml}
+                },
+                "destination": {
+                    "server": "https://kubernetes.default.svc",
+                    "namespace": "default"
+                },
+                "syncPolicy": {
+                    "automated": {"prune": True, "selfHeal": True}
+                }
+            }
+        }
         
         if self.mock_mode:
-            return self._mock.create_environment(user_id, challenge_id, config)
-        else:
-            # TODO: Реальная реализация через HTTP-запросы к DVP API
-            return self._create_environment_real(user_id, challenge_id, config)
+            return {"project": app_name, "urls": [f"https://student-0.{app_name}.{self.ingress_domain}"]}
+        
+        self._k8s["custom_objects"].create_namespaced_custom_object(
+            group="argoproj.io", version="v1alpha1",
+            namespace=self.argocd_namespace, plural="applications", body=application
+        )
+        
+        return {"project": app_name, "urls": []}
     
     def delete_environment(self, user_id, challenge_id):
-        """
-        Удалить окружение студента.
-        """
-        project_name = self._get_project_name(user_id, challenge_id)
+        app_name = self._get_app_name(user_id, challenge_id)
         
         if self.mock_mode:
-            return self._mock.delete_environment(project_name)
-        else:
-            # TODO: Реальная реализация
-            return self._delete_environment_real(project_name)
+            print(f"[MOCK] Environment deleted: {app_name}")
+            return {"status": "deleted"}
+        
+        # 1. Сначала удалить проект DVP (вместе со всеми ВМ, дисками, сервисами)
+        try:
+            self._k8s["custom_objects"].delete_namespaced_custom_object(
+                group="deckhouse.io",
+                version="v1alpha2",
+                namespace="default",
+                plural="projects",
+                name=app_name
+            )
+            print(f"[DVP] Project deleted: {app_name}")
+        except Exception as e:
+            print(f"[DVP] Delete Project error: {e}")
+        
+        # 2. Потом удалить ArgoCD Application (уже пустой)
+        try:
+            self._k8s["custom_objects"].delete_namespaced_custom_object(
+                group="argoproj.io",
+                version="v1alpha1",
+                namespace=self.argocd_namespace,
+                plural="applications",
+                name=app_name
+            )
+            print(f"[DVP] Application deleted: {app_name}")
+        except Exception as e:
+            print(f"[DVP] Delete Application error: {e}")
+        
+        return {"status": "deleted"}
     
     def get_environment_status(self, user_id, challenge_id):
-        """
-        Получить статус окружения.
-        """
-        project_name = self._get_project_name(user_id, challenge_id)
+        app_name = self._get_app_name(user_id, challenge_id)
         
         if self.mock_mode:
-            return self._mock.get_environment_status(project_name)
+            return {"sync": "Synced", "health": "Healthy"}
         else:
-            # TODO: Реальная реализация
-            return self._get_environment_status_real(project_name)
+            try:
+                app = self._k8s["custom_objects"].get_namespaced_custom_object(
+                    group="argoproj.io",
+                    version="v1alpha1",
+                    namespace=self.argocd_namespace,
+                    plural="applications",
+                    name=app_name
+                )
+                status = app.get("status", {})
+                return {
+                    "sync": status.get("sync", {}).get("status", "Unknown"),
+                    "health": status.get("health", {}).get("status", "Unknown")
+                }
+            except Exception:
+                return {"sync": "Unknown", "health": "Unknown"}
+    
+    def execute_check_script(self, user_id, challenge_id, script):
+        if self.mock_mode:
+            print(f"[MOCK] Check script executed for {user_id}/{challenge_id}")
+            return {"success": True, "output": "Mock check passed"}
+        
+        app_name = self._get_app_name(user_id, challenge_id)
+        namespace = app_name
+        
+        pods = self._k8s["core_v1"].list_namespaced_pod(
+            namespace=namespace,
+            label_selector="vm.kubevirt.io/name"
+        )
+        
+        if not pods.items:
+            return {"success": False, "output": "Pod not found"}
+        
+        pod_name = pods.items[0].metadata.name
+        
+        from kubernetes.stream import stream
+        
+        try:
+            resp = stream(
+                self._k8s["core_v1"].connect_get_namespaced_pod_exec,
+                pod_name,
+                namespace,
+                command=["/bin/bash", "-c", script],
+                stderr=True, stdin=False,
+                stdout=True, tty=False
+            )
+            
+            output = resp.strip() if resp else ""
+            success = "SUCCESS" in output
+            return {"success": success, "output": output}
+        except Exception as e:
+            return {"success": False, "output": str(e)}
     
     def list_all_environments(self):
-        """
-        Получить список всех активных окружений (для админки).
-        """
         if self.mock_mode:
             return self._mock.list_all_environments()
         else:
-            # TODO: Реальная реализация
-            return self._list_all_environments_real()
-    
-    # ========== Заглушки для реального режима (TODO) ==========
-    
-    def _create_environment_real(self, user_id, challenge_id, config):
-        """
-        Реальная реализация создания окружения через DVP API.
-        Будет дописана, когда появится доступ к кластеру.
-        """
-        raise NotImplementedError("Real DVP API integration not implemented yet")
-    
-    def _delete_environment_real(self, project_name):
-        """Реальное удаление окружения"""
-        raise NotImplementedError("Real DVP API integration not implemented yet")
-    
-    def _get_environment_status_real(self, project_name):
-        """Реальное получение статуса"""
-        raise NotImplementedError("Real DVP API integration not implemented yet")
-    
-    def _list_all_environments_real(self):
-        """Реальное получение списка окружений"""
-        raise NotImplementedError("Real DVP API integration not implemented yet")
+            try:
+                apps = self._k8s["custom_objects"].list_namespaced_custom_object(
+                    group="argoproj.io",
+                    version="v1alpha1",
+                    namespace=self.argocd_namespace,
+                    plural="applications"
+                )
+                return apps.get("items", [])
+            except Exception:
+                return []
 
 
-# Глобальный экземпляр клиента
 dvp_client = DVPClient()

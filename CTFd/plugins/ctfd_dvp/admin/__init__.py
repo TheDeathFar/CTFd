@@ -36,6 +36,7 @@ def load_admin_routes(admin_bp):
                 "challenge_name": challenge.name if challenge else f"Challenge {env.challenge_id}",
                 "project_name": env.project_name,
                 "subdomain": env.subdomain,
+                "check_status": env.check_status or "pending",
                 "created_at": created_str,
                 "expires_at": expires_str,
                 "time_remaining": max(0, env.expires_at - int(time.time()))

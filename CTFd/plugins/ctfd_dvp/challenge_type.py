@@ -47,11 +47,10 @@ class DVPChallenge(DynamicValueChallenge):
         
         if dvp_challenge:
             data.update({
-                "environment_type": dvp_challenge.environment_type,
-                "image": dvp_challenge.image,
-                "ports": dvp_challenge.ports,
-                "vm_cpu": dvp_challenge.vm_cpu,
-                "vm_memory": dvp_challenge.vm_memory,
+                "git_repo_url": dvp_challenge.git_repo_url,
+                "git_ref": dvp_challenge.git_ref,
+                "chart_path": dvp_challenge.chart_path,
+                "helm_values": dvp_challenge.helm_values,
                 "timeout": dvp_challenge.timeout,
                 "subdomain_template": dvp_challenge.subdomain_template,
                 "check_script": dvp_challenge.check_script,
@@ -68,7 +67,7 @@ class DVPChallenge(DynamicValueChallenge):
         data = request.form or request.get_json()
         
         challenge = cls.challenge_model(
-            name=data.get("name", "New DVP Challenge"),
+            name=data.get("name", "New DVP Lab"),
             category=data.get("category", "DVP"),
             value=int(data.get("value", 100)),
             description=data.get("description", ""),
@@ -80,11 +79,10 @@ class DVPChallenge(DynamicValueChallenge):
         
         dvp_challenge = cls.model(
             id=challenge.id,
-            environment_type=data.get("environment_type", "container"),
-            image=data.get("image", "nginx:alpine"),
-            ports=data.get("ports", "80"),
-            vm_cpu=int(data.get("vm_cpu", 2)),
-            vm_memory=data.get("vm_memory", "2Gi"),
+            git_repo_url=data.get("git_repo_url", ""),
+            git_ref=data.get("git_ref", "main"),
+            chart_path=data.get("chart_path", "."),
+            helm_values=data.get("helm_values", "{}"),
             timeout=int(data.get("timeout", 3600)),
             subdomain_template=data.get("subdomain_template", ""),
             check_script=data.get("check_script", ""),
@@ -110,11 +108,10 @@ class DVPChallenge(DynamicValueChallenge):
         
         dvp_challenge = cls.model.query.filter_by(id=challenge.id).first()
         if dvp_challenge:
-            dvp_challenge.environment_type = data.get("environment_type", dvp_challenge.environment_type)
-            dvp_challenge.image = data.get("image", dvp_challenge.image)
-            dvp_challenge.ports = data.get("ports", dvp_challenge.ports)
-            dvp_challenge.vm_cpu = int(data.get("vm_cpu", dvp_challenge.vm_cpu))
-            dvp_challenge.vm_memory = data.get("vm_memory", dvp_challenge.vm_memory)
+            dvp_challenge.git_repo_url = data.get("git_repo_url", dvp_challenge.git_repo_url)
+            dvp_challenge.git_ref = data.get("git_ref", dvp_challenge.git_ref)
+            dvp_challenge.chart_path = data.get("chart_path", dvp_challenge.chart_path)
+            dvp_challenge.helm_values = data.get("helm_values", dvp_challenge.helm_values)
             dvp_challenge.timeout = int(data.get("timeout", dvp_challenge.timeout))
             dvp_challenge.subdomain_template = data.get("subdomain_template", dvp_challenge.subdomain_template)
             dvp_challenge.check_script = data.get("check_script", dvp_challenge.check_script)
@@ -146,12 +143,10 @@ class DVPChallenge(DynamicValueChallenge):
     @classmethod
     def attempt(cls, challenge, request):
         """
-        Проверка флага.
+        Проверка выполнения задания (без флага, по check_status).
         """
         from CTFd.utils.user import get_current_user
         
-        data = request.form or request.get_json()
-        submission = data.get("submission", "").strip()
         user = get_current_user()
         
         env = DVPEnvironment.query.filter_by(
@@ -162,9 +157,12 @@ class DVPChallenge(DynamicValueChallenge):
         if not env:
             return False, "Окружение не запущено. Нажмите «Запустить окружение»."
         
-        if env.flag == submission:
-            return True, "Правильно!"
-        return False, "Неверный флаг"
+        if env.check_status == "success":
+            return True, "Задание выполнено!"
+        elif env.check_status == "failed":
+            return False, "Задание не выполнено. Попробуйте ещё раз."
+        else:
+            return False, "Проверка ещё не запущена. Нажмите «Проверить»."
     
     @classmethod
     def solve(cls, user, team, challenge, request):

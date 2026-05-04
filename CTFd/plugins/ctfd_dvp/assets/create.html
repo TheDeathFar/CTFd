@@ -1,88 +1,66 @@
 {% extends "admin/challenges/create.html" %}
 
-{% block header %}
-    <div class="alert alert-info" role="alert">
-        🚀 Динамическая DVP-среда — каждый студент получает изолированное окружение в Deckhouse Virtualization Platform.
-    </div>
-{% endblock %}
-
 {% block value %}
-    <!-- Кастомные поля DVP -->
     <div class="form-group">
-        <label for="environment_type">Тип окружения *</label>
-        <select class="form-control" name="environment_type" id="environment_type">
-            <option value="container">Контейнер (Pod)</option>
-            <option value="virtualmachine">Виртуальная машина (KubeVirt)</option>
-        </select>
+        <label for="git_repo_url">Git-репозиторий с Helm-чартом *</label>
+        <input type="text" class="form-control" name="git_repo_url" required 
+               placeholder="https://github.com/TheDeathFar/pen-lab-chart">
         <small class="form-text text-muted">
-            Контейнер — быстрый запуск, мало ресурсов. ВМ — полноценная ОС.
+            URL репозитория, содержащего Helm-чарт лабораторной работы.
         </small>
     </div>
 
     <div class="form-group">
-        <label for="image">Образ *</label>
-        <input type="text" class="form-control" name="image" required 
-               value="nginx:alpine" placeholder="nginx:alpine или quay.io/containerdisks/ubuntu:22.04">
+        <label for="git_ref">Ветка / тег</label>
+        <input type="text" class="form-control" name="git_ref" value="main" 
+               placeholder="main, develop, v1.0.0">
+    </div>
+
+    <div class="form-group">
+        <label for="chart_path">Путь к чарту</label>
+        <input type="text" class="form-control" name="chart_path" value="." 
+               placeholder="charts/lab-name">
         <small class="form-text text-muted">
-            Для контейнеров — Docker-образ. Для ВМ — ContainerDisk образ.
+            Путь к Helm-чарту внутри репозитория (по умолчанию корень).
         </small>
     </div>
 
-    <div id="container_options">
-        <div class="form-group">
-            <label for="ports">Порты</label>
-            <input type="text" class="form-control" name="ports" value="80" placeholder="80,443">
-            <small class="form-text text-muted">
-                Порты, которые будут открыты для доступа (только для контейнеров).
-            </small>
-        </div>
-    </div>
-
-    <div id="vm_options" style="display: none;">
-        <div class="form-group">
-            <label for="vm_cpu">CPU (ядер)</label>
-            <input type="number" class="form-control" name="vm_cpu" value="2" min="1" max="16">
-        </div>
-        <div class="form-group">
-            <label for="vm_memory">Память</label>
-            <input type="text" class="form-control" name="vm_memory" value="2Gi" placeholder="2Gi, 4Gi, 8Gi">
-        </div>
+    <div class="form-group">
+        <label for="helm_values">Дополнительные параметры Helm (JSON)</label>
+        <textarea class="form-control" name="helm_values" rows="6">{}</textarea>
+        <small class="form-text text-muted">
+            Базовые параметры (project.name) подставляются автоматически.
+        </small>
     </div>
 
     <div class="form-group">
         <label for="timeout">Время жизни (секунд)</label>
         <input type="number" class="form-control" name="timeout" value="3600" min="300" max="86400">
-        <small class="form-text text-muted">3600 секунд = 1 час</small>
+        <small class="form-text text-muted">3600 секунд = 1 час. Максимум 24 часа.</small>
     </div>
 
     <div class="form-group">
         <label for="subdomain_template">Шаблон поддомена</label>
         <input type="text" class="form-control" name="subdomain_template" 
-               placeholder="user-{user_id}-challenge-{challenge_id}.polygon.local">
+               placeholder="lab-{challenge_id}-{user_id}.polygon.local">
         <small class="form-text text-muted">
-            Доступные переменные: {user_id}, {challenge_id}. Оставьте пустым для авто-генерации.
+            Доступные переменные: {user_id}, {challenge_id}.
         </small>
     </div>
 
-    <!-- Стандартное поле value (очки) -->
+    <div class="form-group">
+        <label for="check_script">Скрипт проверки (Bash)</label>
+        <textarea class="form-control" name="check_script" rows="6" 
+                  placeholder="#!/bin/bash&#10;# Проверить, что сервис запущен&#10;curl -s http://localhost:8080/health | grep -q 'OK' &amp;&amp; echo 'SUCCESS'"></textarea>
+        <small class="form-text text-muted">
+            Выполняется при нажатии «Проверить». При успехе должен вывести SUCCESS.
+        </small>
+    </div>
+
     <div class="form-group">
         <label for="value">Очки *</label>
         <input type="number" class="form-control" name="value" value="100" required>
     </div>
-
-    <script>
-        document.getElementById('environment_type').addEventListener('change', function(e) {
-            const containerOpts = document.getElementById('container_options');
-            const vmOpts = document.getElementById('vm_options');
-            if (e.target.value === 'virtualmachine') {
-                containerOpts.style.display = 'none';
-                vmOpts.style.display = 'block';
-            } else {
-                containerOpts.style.display = 'block';
-                vmOpts.style.display = 'none';
-            }
-        });
-    </script>
 {% endblock %}
 
 {% block type %}

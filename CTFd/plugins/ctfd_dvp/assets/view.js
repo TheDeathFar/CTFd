@@ -1,315 +1,147 @@
-// ============================================
-// DVP Challenge - View Script
-// ============================================
-
 if (window.$ === undefined) window.$ = CTFd.lib.$;
 
 CTFd._internal.challenge.data = undefined;
 CTFd._internal.challenge.renderer = null;
 
-CTFd._internal.challenge.preRender = function() {
-    console.log('[DVP] preRender called');
-};
-
+CTFd._internal.challenge.preRender = function() { console.log('[DVP] preRender called'); };
 CTFd._internal.challenge.render = null;
 
 CTFd._internal.challenge.postRender = function() {
     console.log('[DVP] postRender called');
-    
-    // ========== ДОБАВЬТЕ ЭТИ ТРИ СТРОКИ ==========
     $('.modal-backdrop').remove();
     $('body').removeClass('modal-open');
-    // ============================================
-
     loadDVPInfo();
+    startPolling();
 };
 
 var dvpTimer = undefined;
-
-// ============================================
-// Загрузка информации об окружении
-// ============================================
+var pollingInterval = undefined;
 
 function loadDVPInfo() {
     var challenge_id = CTFd._internal.challenge.data.id;
     
     CTFd.fetch('/api/v1/dvp/status?challenge_id=' + challenge_id, {
-        method: 'GET',
-        credentials: 'same-origin',
-        headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-        }
-    }).then(function(response) {
-        return response.json();
-    }).then(function(response) {
-        console.log('[DVP] Status response:', response);
+        method: 'GET', credentials: 'same-origin',
+        headers: {'Accept': 'application/json', 'Content-Type': 'application/json'}
+    }).then(function(response) { return response.json(); })
+    .then(function(response) {
+        if (dvpTimer !== undefined) { clearInterval(dvpTimer); dvpTimer = undefined; }
         
-        // Очищаем старый таймер
-        if (dvpTimer !== undefined) {
-            clearInterval(dvpTimer);
-            dvpTimer = undefined;
-        }
-        
-        if (response.status === 'running') {
-            // Окружение запущено
+        if (response.status === 'running' || response.status === 'already_running') {
             $('#dvp-panel-stopped').hide();
             $('#dvp-panel-started').show();
             
-            $('#dvp-url').attr('href', response.url);
-            $('#dvp-url').text(response.url);
-            $('#dvp-status-text').text('Запущено');
-            
-            // Запускаем таймер
-            var expiresAt = response.expires_at;
-            
-            function updateTimer() {
-                var now = Math.floor(Date.now() / 1000);
-                var remaining = expiresAt - now;
-                
-                if (remaining <= 0) {
-                    $('#dvp-timer').text('Истекло');
-                    clearInterval(dvpTimer);
-                    dvpTimer = undefined;
-                    loadDVPInfo();
-                    return;
-                }
-                
-                var hours = Math.floor(remaining / 3600);
-                var minutes = Math.floor((remaining % 3600) / 60);
-                var seconds = remaining % 60;
-                
-                $('#dvp-timer').text(
-                    hours + ':' + 
-                    minutes.toString().padStart(2, '0') + ':' + 
-                    seconds.toString().padStart(2, '0')
-                );
+            var urlsContainer = $('#dvp-urls');
+            urlsContainer.empty();
+            if (response.urls && response.urls.length > 0) {
+                response.urls.forEach(function(url, i) {
+                    urlsContainer.append(
+                        '<h6 class="card-subtitle mb-2 text-muted">ВМ ' + i + ': <a href="' + url + '" target="_blank">' + url + '</a></h6>'
+                    );
+                });
+            } else {
+                urlsContainer.append('<h6 class="card-subtitle mb-2 text-muted">⏳ Ожидание ингрессов...</h6>');
             }
             
-            updateTimer();
-            dvpTimer = setInterval(updateTimer, 1000);
-            
-        } else if (response.status === 'already_running') {
-            // Уже запущено (обрабатываем как running)
-            $('#dvp-panel-stopped').hide();
-            $('#dvp-panel-started').show();
-            $('#dvp-url').attr('href', response.url);
-            $('#dvp-url').text(response.url);
-            $('#dvp-status-text').text('Запущено');
-            
-            var expiresAt = response.expires_at;
-            
-            function updateTimer2() {
-                var now = Math.floor(Date.now() / 1000);
-                var remaining = expiresAt - now;
-                
-                if (remaining <= 0) {
-                    $('#dvp-timer').text('Истекло');
-                    clearInterval(dvpTimer);
-                    dvpTimer = undefined;
-                    loadDVPInfo();
-                    return;
-                }
-                
-                var hours = Math.floor(remaining / 3600);
-                var minutes = Math.floor((remaining % 3600) / 60);
-                var seconds = remaining % 60;
-                
-                $('#dvp-timer').text(
-                    hours + ':' + 
-                    minutes.toString().padStart(2, '0') + ':' + 
-                    seconds.toString().padStart(2, '0')
-                );
+            if (response.check_status === 'success') {
+                $('#dvp-status-text').text('✅ Выполнено');
+            } else if (response.check_status === 'failed') {
+                $('#dvp-status-text').text('❌ Не выполнено');
+            } else {
+                $('#dvp-status-text').text('Запущено');
             }
             
-            updateTimer2();
-            dvpTimer = setInterval(updateTimer2, 1000);
-            
+            if (response.expires_at) { startTimer(response.expires_at); }
         } else {
-            // Окружение не запущено
             $('#dvp-panel-started').hide();
             $('#dvp-panel-stopped').show();
-            $('#dvp-status-text').text('Не запущено');
         }
     }).catch(function(error) {
-        console.error('[DVP] Status error:', error);
-        $('#dvp-panel-started').hide();
-        $('#dvp-panel-stopped').show();
+        $('#dvp-panel-started').hide(); $('#dvp-panel-stopped').show();
     });
 }
 
-// ============================================
-// Запуск окружения
-// ============================================
+function startTimer(expiresAt) {
+    function update() {
+        var now = Math.floor(Date.now() / 1000), remaining = expiresAt - now;
+        if (remaining <= 0) {
+            $('#dvp-timer').text('Истекло').css('color', 'red');
+            clearInterval(dvpTimer); dvpTimer = undefined; return;
+        }
+        var h = Math.floor(remaining/3600), m = Math.floor((remaining%3600)/60), s = remaining%60;
+        $('#dvp-timer').text(h+':'+m.toString().padStart(2,'0')+':'+s.toString().padStart(2,'0'));
+    }
+    update(); dvpTimer = setInterval(update, 1000);
+}
+
+function startPolling() {
+    if (pollingInterval) clearInterval(pollingInterval);
+    pollingInterval = setInterval(function() {
+        if (CTFd._internal.challenge.data && CTFd._internal.challenge.data.id) {
+            loadDVPInfo();
+        }
+    }, 5000);
+}
 
 CTFd._internal.challenge.launch = function() {
     var challenge_id = CTFd._internal.challenge.data.id;
-
-        // ========== ДОБАВЬТЕ ЭТИ ТРИ СТРОКИ ==========
-    $('.modal-backdrop').remove();
-    $('body').removeClass('modal-open');
-    // ============================================
-    
-    $('#dvp-button-launch').text('Запуск...');
-    $('#dvp-button-launch').prop('disabled', true);
-    
-    $('#dvp-button-launch').text('Запуск...');
-    $('#dvp-button-launch').prop('disabled', true);
+    $('.modal-backdrop').remove(); $('body').removeClass('modal-open');
+    $('#dvp-button-launch').text('Запуск...').prop('disabled', true);
     
     CTFd.fetch('/api/v1/dvp/launch', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'CSRF-Token': window.csrf_nonce
-        },
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Accept': 'application/json', 'Content-Type': 'application/json', 'CSRF-Token': CTFd.config.csrfNonce},
         body: JSON.stringify({ challenge_id: challenge_id })
-    }).then(function(response) {
-        return response.json();
-    }).then(function(response) {
-        console.log('[DVP] Launch response:', response);
-        
+    }).then(r => r.json()).then(function(response) {
         if (response.status === 'launched' || response.status === 'already_running') {
-            CTFd._functions.events.eventAlert({
-                title: 'Успех',
-                html: 'Окружение запущено!',
-                button: 'OK'
-            });
-            
-            // ВАЖНО: обновляем интерфейс
+            CTFd._functions.events.eventAlert({title: 'Успех', html: 'Окружение запущено!', button: 'OK'});
             loadDVPInfo();
+            startPolling();
         } else {
-            CTFd._functions.events.eventAlert({
-                title: 'Ошибка',
-                html: response.error || 'Не удалось запустить окружение',
-                button: 'OK'
-            });
+            CTFd._functions.events.eventAlert({title: 'Ошибка', html: response.error || 'Не удалось', button: 'OK'});
         }
-    }).catch(function(error) {
-        console.error('[DVP] Launch error:', error);
-        CTFd._functions.events.eventAlert({
-            title: 'Ошибка',
-            html: 'Сетевая ошибка при запуске',
-            button: 'OK'
-        });
-    }).finally(function() {
-        $('#dvp-button-launch').text('🚀 Запустить окружение');
-        $('#dvp-button-launch').prop('disabled', false);
-    });
+    }).finally(function() { $('#dvp-button-launch').text('🚀 Запустить окружение').prop('disabled', false); });
 };
-
-// ============================================
-// Остановка окружения
-// ============================================
 
 CTFd._internal.challenge.terminate = function() {
+    if (!confirm('Остановить окружение?')) return;
     var challenge_id = CTFd._internal.challenge.data.id;
-
-    $('.modal-backdrop').remove();
-    $('body').removeClass('modal-open');
-    
-    if (!confirm('Остановить окружение? Все данные будут потеряны.')) {
-        return;
-    }
-    
-    $('#dvp-button-terminate').text('Остановка...');
-    $('#dvp-button-terminate').prop('disabled', true);
+    $('#dvp-button-terminate').text('Остановка...').prop('disabled', true);
+    if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = undefined; }
     
     CTFd.fetch('/api/v1/dvp/terminate', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'CSRF-Token': window.csrf_nonce
-        },
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Accept': 'application/json', 'Content-Type': 'application/json', 'CSRF-Token': CTFd.config.csrfNonce},
         body: JSON.stringify({ challenge_id: challenge_id })
-    }).then(function(response) {
-        return response.json();
-    }).then(function(response) {
-        console.log('[DVP] Terminate response:', response);
-        
+    }).then(r => r.json()).then(function(response) {
         if (response.status === 'terminated') {
-            CTFd._functions.events.eventAlert({
-                title: 'Успех',
-                html: 'Окружение остановлено',
-                button: 'OK'
-            });
+            CTFd._functions.events.eventAlert({title: 'Успех', html: 'Окружение остановлено', button: 'OK'});
             loadDVPInfo();
         }
-    }).catch(function(error) {
-        console.error('[DVP] Terminate error:', error);
-    }).finally(function() {
-        $('#dvp-button-terminate').text('⏹ Остановить');
-        $('#dvp-button-terminate').prop('disabled', false);
-    });
+    }).finally(function() { $('#dvp-button-terminate').text('⏹ Остановить').prop('disabled', false); });
 };
 
-// ============================================
-// Продление окружения
-// ============================================
-
-// CTFd._internal.challenge.extend = function() {
-//     var challenge_id = CTFd._internal.challenge.data.id;
+CTFd._internal.challenge.check = function() {
+    var challenge_id = CTFd._internal.challenge.data.id;
+    $('#dvp-button-check').text('Проверка...').prop('disabled', true);
     
-//     $('#dvp-button-extend').text('Продление...');
-//     $('#dvp-button-extend').prop('disabled', true);
-    
-//     CTFd.fetch('/api/v1/dvp/extend', {
-//         method: 'POST',
-//         credentials: 'same-origin',
-//         headers: {
-//             'Accept': 'application/json',
-//             'Content-Type': 'application/json',
-//             'CSRF-Token': window.csrf_nonce
-//         },
-//         body: JSON.stringify({ 
-//             challenge_id: challenge_id,
-//             extend_by: 1800
-//         })
-//     }).then(function(response) {
-//         return response.json();
-//     }).then(function(response) {
-//         console.log('[DVP] Extend response:', response);
-        
-//         if (response.status === 'extended') {
-//             CTFd._functions.events.eventAlert({
-//                 title: 'Успех',
-//                 html: 'Время продлено на 30 минут',
-//                 button: 'OK'
-//             });
-//             loadDVPInfo();
-//         }
-//     }).catch(function(error) {
-//         console.error('[DVP] Extend error:', error);
-//     }).finally(function() {
-//         $('#dvp-button-extend').text('⏰ Продлить');
-//         $('#dvp-button-extend').prop('disabled', false);
-//     });
-// };
-
-// ============================================
-// Привязка событий к кнопкам
-// ============================================
+    CTFd.fetch('/api/v1/dvp/check', {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Accept': 'application/json', 'Content-Type': 'application/json', 'CSRF-Token': CTFd.config.csrfNonce},
+        body: JSON.stringify({ challenge_id: challenge_id })
+    }).then(r => r.json()).then(function(response) {
+        if (response.status === 'success') {
+            CTFd._functions.events.eventAlert({title: '✅ Успех', html: 'Задание выполнено!', button: 'OK'});
+            $('#dvp-status-text').text('✅ Выполнено');
+        } else {
+            CTFd._functions.events.eventAlert({title: '❌ Ошибка', html: response.message || 'Не выполнено', button: 'OK'});
+            $('#dvp-status-text').text('❌ Не выполнено');
+        }
+    }).finally(function() { $('#dvp-button-check').text('✅ Проверить').prop('disabled', false); });
+};
 
 $(document).ready(function() {
-    console.log('[DVP] Binding buttons...');
-    
-    $(document).on('click', '#dvp-button-launch', function(e) {
-        e.preventDefault();
-        CTFd._internal.challenge.launch();
-    });
-    
-    $(document).on('click', '#dvp-button-terminate', function(e) {
-        e.preventDefault();
-        CTFd._internal.challenge.terminate();
-    });
-    
-    // $(document).on('click', '#dvp-button-extend', function(e) {
-    //     e.preventDefault();
-    //     CTFd._internal.challenge.extend();
-    // });
-    
-    console.log('[DVP] Buttons bound');
+    $(document).on('click', '#dvp-button-launch', function(e) { e.preventDefault(); CTFd._internal.challenge.launch(); });
+    $(document).on('click', '#dvp-button-terminate', function(e) { e.preventDefault(); CTFd._internal.challenge.terminate(); });
+    $(document).on('click', '#dvp-button-check', function(e) { e.preventDefault(); CTFd._internal.challenge.check(); });
 });

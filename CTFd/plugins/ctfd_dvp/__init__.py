@@ -55,10 +55,10 @@ def load(app):
         url_prefix=f"/plugins/{plugin_name}"
     )
     
-    # 7. Редирект с корня плагина на админ-панель
-    @admin_bp.route("/dvp")
+    # 7. Редирект с /dvp на админ-панель (на уровне всего приложения)
+    @app.route("/dvp")
     @admins_only
-    def plugin_index():
+    def dvp_redirect():
         return redirect(f"/plugins/{plugin_name}/admin/environments")
     
     # 8. Регистрируем пункт в меню админки

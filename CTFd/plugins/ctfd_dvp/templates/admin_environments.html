@@ -20,6 +20,7 @@
                         <th>Challenge</th>
                         <th>Project</th>
                         <th>Subdomain</th>
+                        <th>Check</th>
                         <th>Created</th>
                         <th>Expires</th>
                         <th>Time Left</th>
@@ -40,6 +41,15 @@
                             -
                             {% endif %}
                         </td>
+                        <td>
+                            {% if env.check_status == 'success' %}
+                                ✅
+                            {% elif env.check_status == 'failed' %}
+                                ❌
+                            {% else %}
+                                ⏳
+                            {% endif %}
+                        </td>
                         <td>{{ env.created_at }}</td>
                         <td>{{ env.expires_at }}</td>
                         <td>
@@ -50,9 +60,9 @@
                             {% endif %}
                         </td>
                         <td>
-                        <button class="btn btn-sm btn-success extend-btn" data-id="{{ env.id }}">
-                            +30 min
-                        </button>
+                            <button class="btn btn-sm btn-success extend-btn" data-id="{{ env.id }}">
+                                +30 min
+                            </button>
                             <button class="btn btn-sm btn-danger terminate-btn" data-id="{{ env.id }}">
                                 Terminate
                             </button>
@@ -60,7 +70,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="9" class="text-center">No active environments</td>
+                        <td colspan="10" class="text-center">No active environments</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -76,21 +86,21 @@
             <table class="table table-sm">
                 <thead>
                     <tr>
-                        <th>Project</th>
+                        <th>Application</th>
                         <th>User ID</th>
                         <th>Challenge ID</th>
-                        <th>VMs</th>
-                        <th>Containers</th>
+                        <th>Sync</th>
+                        <th>Health</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for env in mock_environments %}
                     <tr>
-                        <td><code>{{ env.project }}</code></td>
+                        <td><code>{{ env.name }}</code></td>
                         <td>{{ env.user_id }}</td>
                         <td>{{ env.challenge_id }}</td>
-                        <td>{{ env.vms | join(', ') }}</td>
-                        <td>{{ env.containers | join(', ') }}</td>
+                        <td>{{ env.sync }}</td>
+                        <td>{{ env.health }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -101,13 +111,14 @@
 </div>
 
 <script>
+// Terminate
 document.querySelectorAll('.terminate-btn').forEach(btn => {
     btn.addEventListener('click', async function() {
         if (!confirm('Terminate this environment?')) return;
         
         const id = this.dataset.id;
         const response = await fetch(`/api/v1/dvp/admin/environments/${id}/terminate`, {
-            method: 'DELETE',
+            method: 'POST',
             headers: {
                 'CSRF-Token': CTFd.config.csrfNonce,  // ← ВОТ ТАК
                 'Content-Type': 'application/json'

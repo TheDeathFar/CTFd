@@ -1,19 +1,22 @@
-"""
-Работа с Redis для кэширования состояния окружений.
-"""
-
 import redis
-from flask import current_app
+import os
 
+redis_client = None
 
-def get_redis_client():
-    """
-    Создаёт и возвращает клиент Redis.
-    Использует REDIS_URL из конфигурации CTFd.
-    """
-    redis_url = current_app.config.get("REDIS_URL", "redis://localhost:6379")
-    return redis.from_url(redis_url, decode_responses=True)
+def get_redis():
+    global redis_client
 
+    if redis_client is not None:
+        return redis_client
 
-# Глобальный экземпляр
-redis_client = get_redis_client()
+    redis_url = os.getenv("REDIS_URL")
+
+    if not redis_url:
+        raise RuntimeError("[DVP] REDIS_URL is not set")
+
+    client = redis.from_url(redis_url, decode_responses=True)
+    client.ping()
+    redis_client = client
+    print(f"[DVP] Redis connected: {redis_url}")
+
+    return redis_client
