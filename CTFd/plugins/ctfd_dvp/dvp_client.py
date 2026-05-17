@@ -160,54 +160,113 @@ class DVPClient:
     
     def execute_check_script(self, user_id, challenge_id, script):
         if self.mock_mode:
-            print(f"[MOCK] Check script executed for {user_id}/{challenge_id}")
             return {"success": True, "output": "Mock check passed"}
-        
+
+        import uuid
+        import time
+
         app_name = self._get_app_name(user_id, challenge_id)
         namespace = app_name
-        
-        pods = self._k8s["core_v1"].list_namespaced_pod(
-            namespace=namespace,
-            label_selector="vm.kubevirt.io/name"
-        )
-        
-        if not pods.items:
-            return {"success": False, "output": "Pod not found"}
-        
-        pod_name = pods.items[0].metadata.name
-        
-        from kubernetes.stream import stream
-        
+        pod_name = f"check-{app_name}-{str(uuid.uuid4())[:8]}"
+
+        # 1. Получаем IP-адреса ВСЕХ ВМ
+        vm_ips = []
         try:
-            resp = stream(
-                self._k8s["core_v1"].connect_get_namespaced_pod_exec,
-                pod_name,
-                namespace,
-                command=["/bin/bash", "-c", script],
-                stderr=True, stdin=False,
-                stdout=True, tty=False
+            vms = self._k8s["custom_objects"].list_namespaced_custom_object(
+                group="virtualization.deckhouse.io",
+                version="v1alpha2",
+                namespace=namespace,
+                plural="virtualmachines"
             )
-            
-            output = resp.strip() if resp else ""
-            success = "SUCCESS" in output
-            return {"success": success, "output": output}
+            for vm in (vms.get("items") or []):
+                ip = vm.get("status", {}).get("ipAddress")
+                if ip:
+                    vm_ips.append(ip)
+        except Exception as e:
+            return {"success": False, "output": f"Failed to get VM IPs: {e}"}
+
+        if not vm_ips:
+            return {"success": False, "output": "No VMs found"}
+
+        # 2. Формируем переменные окружения VM0_IP, VM1_IP, ...
+        env_vars = []
+        for i, ip in enumerate(vm_ips):
+            env_vars.append({"name": f"VM{i}_IP", "value": ip})
+
+        # 3. Копируем SSH-секрет в Namespace студента
+        try:
+            self._k8s["core_v1"].read_namespaced_secret("checker-ssh-key", namespace)
+        except:
+            try:
+                original = self._k8s["core_v1"].read_namespaced_secret("checker-ssh-key", "ctfd")
+                secret = {
+                    "apiVersion": "v1",
+                    "kind": "Secret",
+                    "metadata": {"name": "checker-ssh-key", "namespace": namespace},
+                    "data": original.data,
+                    "type": original.type
+                }
+                self._k8s["core_v1"].create_namespaced_secret(namespace, secret)
+            except Exception as e:
+                print(f"Failed to copy SSH secret: {e}")
+
+        # 4. Создаём под-проверщик с SSH
+        pod_manifest = {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {"name": pod_name, "namespace": namespace},
+            "spec": {
+                "restartPolicy": "Never",
+                "volumes": [{
+                    "name": "ssh-key",
+                    "secret": {
+                        "secretName": "checker-ssh-key",
+                        "defaultMode": 0o600
+                    }
+                }],
+                "containers": [{
+                    "name": "checker",
+                    "image": "alpine:latest",
+                    "command": ["/bin/sh", "-c"],
+                    "args": [
+                        f"apk add --no-cache openssh-client > /dev/null 2>&1; {script}"
+                    ],
+                    "env": env_vars,
+                    "resources": {
+                        "limits": {"cpu": "500m", "memory": "256Mi"},
+                        "requests": {"cpu": "100m", "memory": "128Mi"}
+                    },
+                    "volumeMounts": [{
+                        "name": "ssh-key",
+                        "mountPath": "/ssh-key",
+                        "readOnly": True
+                    }]
+                }]
+            }
+        }
+
+        try:
+            self._k8s["core_v1"].create_namespaced_pod(namespace, pod_manifest)
+
+            # 5. Ждём завершения
+            for _ in range(15):
+                time.sleep(2)
+                pod_status = self._k8s["core_v1"].read_namespaced_pod_status(pod_name, namespace)
+                if pod_status.status.phase in ["Succeeded", "Failed"]:
+                    break
+
+            # 6. Получаем логи
+            logs = self._k8s["core_v1"].read_namespaced_pod_log(pod_name, namespace)
+            success = "SUCCESS" in logs
+            return {"success": success, "output": logs}
+
         except Exception as e:
             return {"success": False, "output": str(e)}
-    
-    def list_all_environments(self):
-        if self.mock_mode:
-            return self._mock.list_all_environments()
-        else:
+        finally:
             try:
-                apps = self._k8s["custom_objects"].list_namespaced_custom_object(
-                    group="argoproj.io",
-                    version="v1alpha1",
-                    namespace=self.argocd_namespace,
-                    plural="applications"
-                )
-                return apps.get("items", [])
-            except Exception:
-                return []
+                self._k8s["core_v1"].delete_namespaced_pod(pod_name, namespace)
+            except:
+                pass
 
 
 dvp_client = DVPClient()
