@@ -51,6 +51,7 @@ class DVPEnvironment(db.Model):
     project_name = Column(String(128), nullable=False)
     subdomain = Column(String(256))
     check_status = Column(String(32), default="pending")  # pending, success, failed
+    status = Column(String(32), default="active")  # active, terminated
     created_at = Column(Integer, nullable=False)
     expires_at = Column(Integer, nullable=False)
     

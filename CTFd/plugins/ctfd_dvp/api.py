@@ -22,7 +22,6 @@ def load_routes(app):
     @app.route("/api/v1/dvp/launch", methods=["POST"])
     @authed_only
     def launch_environment():
-        """Запуск окружения для студента."""
         user = get_current_user()
         data = request.get_json() or {}
         challenge_id = data.get("challenge_id")
@@ -39,11 +38,10 @@ def load_routes(app):
             return jsonify({"error": "Challenge not found"}), 404
         
         existing = DVPEnvironment.query.filter_by(
-            user_id=user.id,
-            challenge_id=challenge_id
+            user_id=user.id, challenge_id=challenge_id
         ).first()
         
-        if existing:
+        if existing and existing.status == "active":
             now = int(time.time())
             if now < existing.expires_at:
                 return jsonify({
@@ -53,13 +51,12 @@ def load_routes(app):
                 })
             else:
                 dvp_client.delete_environment(user.id, challenge_id)
-                db.session.delete(existing)
+                existing.status = "terminated"
+                existing.expires_at = int(time.time())
                 db.session.commit()
         
         subdomain = generate_subdomain(
-            dvp_challenge.subdomain_template,
-            user.id,
-            challenge_id
+            dvp_challenge.subdomain_template, user.id, challenge_id
         )
         
         config = {
@@ -81,6 +78,7 @@ def load_routes(app):
                 project_name=result["project"],
                 subdomain=result.get("subdomain", ""),
                 check_status="pending",
+                status="active",
                 created_at=now,
                 expires_at=now + dvp_challenge.timeout
             )
@@ -104,7 +102,6 @@ def load_routes(app):
     @app.route("/api/v1/dvp/terminate", methods=["POST"])
     @authed_only
     def terminate_environment():
-        """Остановка и удаление окружения."""
         user = get_current_user()
         data = request.get_json() or {}
         challenge_id = data.get("challenge_id")
@@ -113,18 +110,19 @@ def load_routes(app):
             return jsonify({"error": "challenge_id is required"}), 400
         
         env = DVPEnvironment.query.filter_by(
-            user_id=user.id,
-            challenge_id=challenge_id
+            user_id=user.id, challenge_id=challenge_id, status="active"
         ).first()
         
         if env:
             try:
                 dvp_client.delete_environment(user.id, challenge_id)
-            except Exception as e:
-                current_app.logger.warning(f"Failed to delete DVP environment: {e}")
+            except:
+                pass
             
-            db.session.delete(env)
+            env.status = "terminated"
+            env.expires_at = int(time.time())
             db.session.commit()
+            
             r = get_redis()
             if r:
                 r.delete(f"dvp:env:{user.id}:{challenge_id}")
@@ -134,7 +132,6 @@ def load_routes(app):
     @app.route("/api/v1/dvp/status", methods=["GET"])
     @authed_only
     def get_status():
-        """Получение статуса окружения."""
         user = get_current_user()
         challenge_id = request.args.get("challenge_id")
         
@@ -142,7 +139,7 @@ def load_routes(app):
             return jsonify({"error": "challenge_id is required"}), 400
         
         env = DVPEnvironment.query.filter_by(
-            user_id=user.id, challenge_id=challenge_id
+            user_id=user.id, challenge_id=challenge_id, status="active"
         ).first()
         
         if not env:
@@ -154,22 +151,23 @@ def load_routes(app):
                 dvp_client.delete_environment(user.id, challenge_id)
             except:
                 pass
-            db.session.delete(env)
+            env.status = "terminated"
+            env.expires_at = int(time.time())
             db.session.commit()
+            
             r = get_redis()
             if r:
                 r.delete(f"dvp:env:{user.id}:{challenge_id}")
             return jsonify({"status": "expired"})
         
-        # Получаем реальные URL из ингрессов
         urls = []
         try:
             ingresses = dvp_client._k8s["networking_v1"].list_namespaced_ingress(namespace=env.project_name)
             for ing in ingresses.items:
                 for rule in ing.spec.rules:
                     urls.append(f"https://{rule.host}")
-        except Exception as e:
-            current_app.logger.error(f"[DVP] Failed to list ingresses: {e}")
+        except:
+            pass
         
         return jsonify({
             "status": "running",
@@ -182,7 +180,6 @@ def load_routes(app):
     @app.route("/api/v1/dvp/check", methods=["POST"])
     @authed_only
     def check_environment():
-        """Проверка выполнения задания по кнопке."""
         user = get_current_user()
         data = request.get_json() or {}
         challenge_id = data.get("challenge_id")
@@ -198,7 +195,9 @@ def load_routes(app):
         
         result = dvp_client.execute_check_script(user.id, challenge_id, dvp_challenge.check_script)
         
-        env = DVPEnvironment.query.filter_by(user_id=user.id, challenge_id=challenge_id).first()
+        env = DVPEnvironment.query.filter_by(
+            user_id=user.id, challenge_id=challenge_id, status="active"
+        ).first()
         if env:
             env.check_status = "success" if result["success"] else "failed"
             db.session.commit()
@@ -211,7 +210,6 @@ def load_routes(app):
     @app.route("/api/v1/dvp/extend", methods=["POST"])
     @authed_only
     def extend_environment():
-        """Продление времени жизни окружения."""
         user = get_current_user()
         data = request.get_json() or {}
         challenge_id = data.get("challenge_id")
@@ -221,8 +219,7 @@ def load_routes(app):
             return jsonify({"error": "challenge_id is required"}), 400
         
         env = DVPEnvironment.query.filter_by(
-            user_id=user.id,
-            challenge_id=challenge_id
+            user_id=user.id, challenge_id=challenge_id, status="active"
         ).first()
         
         if not env:
@@ -245,7 +242,6 @@ def load_routes(app):
     
     @app.route("/api/v1/dvp/mock/status", methods=["GET"])
     def get_mock_status():
-        """Эндпоинт для проверки режима эмуляции."""
         return jsonify({
             "mock_mode": dvp_client.mock_mode,
             "environments": dvp_client.list_all_environments() if dvp_client.mock_mode else []
@@ -254,8 +250,7 @@ def load_routes(app):
     @app.route("/api/v1/dvp/admin/environments", methods=["GET"])
     @admin_required
     def admin_list_environments():
-        """Список всех активных окружений (только для админов)."""
-        envs = DVPEnvironment.query.all()
+        envs = DVPEnvironment.query.order_by(DVPEnvironment.created_at.desc()).all()
         result = []
         for env in envs:
             result.append({
@@ -265,16 +260,16 @@ def load_routes(app):
                 "project_name": env.project_name,
                 "subdomain": env.subdomain,
                 "check_status": env.check_status,
+                "status": env.status,
                 "created_at": datetime.datetime.fromtimestamp(env.created_at).strftime("%Y-%m-%d %H:%M:%S") if env.created_at else "",
                 "expires_at": datetime.datetime.fromtimestamp(env.expires_at).strftime("%Y-%m-%d %H:%M:%S") if env.expires_at else "",
-                "time_remaining": max(0, env.expires_at - int(time.time())) if env.expires_at else 0
+                "time_remaining": max(0, env.expires_at - int(time.time())) if env.status == "active" else 0
             })
         return jsonify({"environments": result})
     
     @app.route("/api/v1/dvp/admin/environments/<int:env_id>/terminate", methods=["POST"])
     @admin_required
     def admin_terminate_environment_post(env_id):
-        """Принудительное удаление окружения администратором (POST)."""
         env = DVPEnvironment.query.get(env_id)
         if not env:
             return jsonify({"error": "Environment not found"}), 404
@@ -284,8 +279,10 @@ def load_routes(app):
         except:
             pass
         
-        db.session.delete(env)
+        env.status = "terminated"
+        env.expires_at = int(time.time())
         db.session.commit()
+        
         r = get_redis()
         if r:
             r.delete(f"dvp:env:{env.user_id}:{env.challenge_id}")
@@ -295,7 +292,6 @@ def load_routes(app):
     @app.route("/api/v1/dvp/admin/environments/<int:env_id>/extend", methods=["POST"])
     @admin_required
     def admin_extend_environment(env_id):
-        """Продление времени окружения администратором."""
         env = DVPEnvironment.query.get(env_id)
         if not env:
             return jsonify({"error": "Environment not found"}), 404
@@ -307,3 +303,20 @@ def load_routes(app):
         db.session.commit()
         
         return jsonify({"status": "extended", "expires_at": env.expires_at})
+    
+    @app.route("/api/v1/dvp/admin/environments/<int:env_id>/delete", methods=["POST"])
+    @admin_required
+    def admin_delete_environment(env_id):
+        """Полное удаление записи об окружении из БД."""
+        env = DVPEnvironment.query.get(env_id)
+        if not env:
+            return jsonify({"error": "Environment not found"}), 404
+        
+        db.session.delete(env)
+        db.session.commit()
+        
+        r = get_redis()
+        if r:
+            r.delete(f"dvp:env:{env.user_id}:{env.challenge_id}")
+        
+        return jsonify({"status": "deleted"})

@@ -24,7 +24,6 @@ def load_admin_routes(admin_bp):
             user = Users.query.get(env.user_id)
             challenge = Challenges.query.get(env.challenge_id)
             
-            # Форматируем даты
             created_str = datetime.datetime.fromtimestamp(env.created_at).strftime("%Y-%m-%d %H:%M:%S")
             expires_str = datetime.datetime.fromtimestamp(env.expires_at).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -37,9 +36,10 @@ def load_admin_routes(admin_bp):
                 "project_name": env.project_name,
                 "subdomain": env.subdomain,
                 "check_status": env.check_status or "pending",
+                "status": "Завершено" if env.status == "terminated" else "Активно",
                 "created_at": created_str,
                 "expires_at": expires_str,
-                "time_remaining": max(0, env.expires_at - int(time.time()))
+                "time_remaining": max(0, env.expires_at - int(time.time())) if env.status != "terminated" else 0
             })
         
         mock_envs = []

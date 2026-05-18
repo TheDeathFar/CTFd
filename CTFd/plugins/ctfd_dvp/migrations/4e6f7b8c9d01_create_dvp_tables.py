@@ -45,6 +45,7 @@ def upgrade(op=None):
         sa.Column('project_name', sa.String(128), nullable=False),
         sa.Column('subdomain', sa.String(256), nullable=True),
         sa.Column('check_status', sa.String(32), nullable=True, server_default='pending'),
+        sa.Column('status', sa.String(32), nullable=True, server_default='active'),
         sa.Column('created_at', sa.Integer(), nullable=False),
         sa.Column('expires_at', sa.Integer(), nullable=False),
         sa.PrimaryKeyConstraint('id')
