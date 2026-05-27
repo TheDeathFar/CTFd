@@ -52,6 +52,8 @@ class DVPClient:
     def create_environment(self, user_id, challenge_id, config):
         app_name = self._get_app_name(user_id, challenge_id)
         
+        node_selectors = config.get("node_selectors", [])
+        
         values = {
             "project": {"create": True, "name": app_name},
             "ingress": {
@@ -60,7 +62,10 @@ class DVPClient:
                 "hostBase": self.ingress_domain,
                 "clusterIssuer": "selfsigned"
             },
-            "vm": {"namePrefix": "student"}
+            "vm": {
+                "namePrefix": "student",
+                "nodeSelector": node_selectors
+            }
         }
         
         values_yaml = json.dumps(values, indent=2)

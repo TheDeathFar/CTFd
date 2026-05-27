@@ -14,6 +14,8 @@ from .dvp_client import dvp_client
 from .models import DVPEnvironment
 from .utils.subdomain import generate_subdomain
 from .utils.cache import get_redis
+from .utils.cache import get_redis, acquire_lock, release_lock
+from .resources import get_chart_resources, can_launch, get_nodes_resources
 from .decorators import admin_required
 
 
@@ -55,6 +57,30 @@ def load_routes(app):
                 existing.expires_at = int(time.time())
                 db.session.commit()
         
+        # === Блокировка + проверка ресурсов ===
+        if not acquire_lock():
+            return jsonify({"error": "Слишком много запросов, попробуйте позже"}), 429
+        
+        try:
+            res = get_chart_resources(
+                dvp_challenge.git_repo_url,
+                dvp_challenge.git_ref,
+                dvp_challenge.chart_path
+            )
+            
+            ok, result = can_launch(
+                res["cpu_per_vm"], res["ram_per_vm"], res["disk_per_vm"], res["vm_count"],
+                dvp_client._k8s,
+                scratch_gb=res["scratch_gb"]
+            )
+            if not ok:
+                return jsonify({"error": result}), 503
+            
+            node_names = result
+            node_selectors = [{"kubernetes.io/hostname": name} for name in node_names]
+        finally:
+            release_lock()
+        
         subdomain = generate_subdomain(
             dvp_challenge.subdomain_template, user.id, challenge_id
         )
@@ -66,6 +92,7 @@ def load_routes(app):
             "helm_values": dvp_challenge.helm_values,
             "timeout": dvp_challenge.timeout,
             "subdomain": subdomain,
+            "node_selectors": node_selectors,
         }
         
         try:
