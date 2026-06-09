@@ -23,7 +23,16 @@
     </div>
 
     <div class="form-group">
-        <label for="timeout">Время жизни (секунд)</label>
+        <label for="strategy">Сценарий использования</label>
+        <select class="form-control" name="strategy">
+            <option value="regular" {% if challenge.strategy == 'regular' %}selected{% endif %}>Обычное занятие</option>
+            <option value="competition" {% if challenge.strategy == 'competition' %}selected{% endif %}>Соревнование / Зачёт</option>
+            <option value="selfstudy" {% if challenge.strategy == 'selfstudy' %}selected{% endif %}>Самостоятельная работа</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="timeout">Время жизни (сек)</label>
         <input type="number" class="form-control" name="timeout" value="{{ challenge.timeout }}">
     </div>
 

@@ -50,7 +50,7 @@ def load(app):
     admin_bp = Blueprint(
         "ctfd_dvp_admin",
         __name__,
-        template_folder="templates",
+        template_folder="admin/templates",
         static_folder="assets",
         url_prefix=f"/plugins/{plugin_name}"
     )

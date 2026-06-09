@@ -92,7 +92,14 @@ class DVPClient:
                 },
                 "syncPolicy": {
                     "automated": {"prune": True, "selfHeal": True}
-                }
+                },
+                "ignoreDifferences": [
+                    {
+                        "group": "virtualization.deckhouse.io",
+                        "kind": "VirtualMachine",
+                        "jsonPointers": ["/spec/runPolicy"]
+                    }
+                ]
             }
         }
         
@@ -162,7 +169,56 @@ class DVPClient:
                 }
             except Exception:
                 return {"sync": "Unknown", "health": "Unknown"}
-    
+
+    def pause_vms(self, namespace):
+        """Приостанавливает все ВМ в namespace."""
+        try:
+            vms = self._k8s["custom_objects"].list_namespaced_custom_object(
+                group="virtualization.deckhouse.io",
+                version="v1alpha2",
+                namespace=namespace,
+                plural="virtualmachines"
+            )
+            for vm in vms.get("items", []):
+                vm_name = vm["metadata"]["name"]
+                self._k8s["custom_objects"].patch_namespaced_custom_object(
+                    group="virtualization.deckhouse.io",
+                    version="v1alpha2",
+                    namespace=namespace,
+                    plural="virtualmachines",
+                    name=vm_name,
+                    body={"spec": {"runPolicy": "AlwaysOff"}}
+                )
+            return True
+        except Exception as e:
+            print(f"[DVP] Failed to pause VMs: {e}")
+            return False
+
+
+    def resume_vms(self, namespace):
+        """Возобновляет все ВМ в namespace."""
+        try:
+            vms = self._k8s["custom_objects"].list_namespaced_custom_object(
+                group="virtualization.deckhouse.io",
+                version="v1alpha2",
+                namespace=namespace,
+                plural="virtualmachines"
+            )
+            for vm in vms.get("items", []):
+                vm_name = vm["metadata"]["name"]
+                self._k8s["custom_objects"].patch_namespaced_custom_object(
+                    group="virtualization.deckhouse.io",
+                    version="v1alpha2",
+                    namespace=namespace,
+                    plural="virtualmachines",
+                    name=vm_name,
+                    body={"spec": {"runPolicy": "AlwaysOn"}}
+                )
+            return True
+        except Exception as e:
+            print(f"[DVP] Failed to resume VMs: {e}")
+            return False
+        
     def execute_check_script(self, user_id, challenge_id, script):
         if self.mock_mode:
             return {"success": True, "output": "Mock check passed"}

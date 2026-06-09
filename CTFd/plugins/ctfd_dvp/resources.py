@@ -7,19 +7,13 @@ import requests
 import time
 
 
-# ========== Кэш ресурсов нод ==========
-
 _cache_nodes = None
 _cache_time = 0
-
-# ========== Минимальный резерв ==========
 
 MIN_FREE_CPU = 0.5
 MIN_FREE_RAM = 1.0
 MIN_FREE_DISK = 2.0
 
-
-# ========== Ресурсы нод ==========
 
 def get_nodes_resources(k8s_client):
     global _cache_nodes, _cache_time
@@ -88,8 +82,6 @@ def get_nodes_resources(k8s_client):
     return nodes
 
 
-# ========== Ресурсы из чарта ==========
-
 def get_chart_resources(git_repo_url, git_ref="main", chart_path="."):
     raw = git_repo_url.replace("github.com", "raw.githubusercontent.com").rstrip("/")
     url = f"{raw}/{git_ref}/{chart_path}/values.yaml"
@@ -109,7 +101,47 @@ def get_chart_resources(git_repo_url, git_ref="main", chart_path="."):
     }
 
 
-# ========== FFD ==========
+def get_limits_for_strategy(strategy, cpu_per_vm, ram_per_vm, disk_per_vm):
+    if strategy == "regular":
+        return cpu_per_vm, ram_per_vm, disk_per_vm, MIN_FREE_CPU, MIN_FREE_RAM, MIN_FREE_DISK
+    elif strategy == "competition":
+        return cpu_per_vm, ram_per_vm, disk_per_vm, MIN_FREE_CPU, MIN_FREE_RAM, MIN_FREE_DISK
+    elif strategy == "selfstudy":
+        return cpu_per_vm * 0.6, ram_per_vm * 0.6, disk_per_vm, MIN_FREE_CPU, MIN_FREE_RAM, MIN_FREE_DISK
+    return cpu_per_vm, ram_per_vm, disk_per_vm, MIN_FREE_CPU, MIN_FREE_RAM, MIN_FREE_DISK
+
+
+def suspend_lower_priority(strategy):
+    """
+    Приостанавливает окружения с более низким приоритетом.
+    Competition > Regular > SelfStudy
+    """
+    priority = {"competition": 3, "regular": 2, "selfstudy": 1}
+    
+    from .models import DVPEnvironment, DVPChallengeModel
+    from .dvp_client import dvp_client
+    
+    active_envs = DVPEnvironment.query.filter_by(status="active").all()
+    suspended = []
+    
+    for env in active_envs:
+        challenge = DVPChallengeModel.query.get(env.challenge_id)
+        if not challenge:
+            continue
+        
+        env_priority = priority.get(challenge.strategy, 1)
+        
+        if env_priority < priority[strategy]:
+            dvp_client.pause_vms(env.project_name)
+            env.status = "suspended"
+            suspended.append(env.project_name)
+    
+    if suspended:
+        from CTFd.models import db
+        db.session.commit()
+    
+    return suspended
+
 
 def ffd_place_vms(cpu_per_vm, ram_per_vm, disk_per_vm, vm_count, k8s_client):
     nodes = get_nodes_resources(k8s_client)
@@ -144,8 +176,6 @@ def can_launch(cpu_per_vm, ram_per_vm, disk_per_vm, vm_count, k8s_client, scratc
     
     return False, "Недостаточно ресурсов. Попробуйте позже."
 
-
-# ========== Парсеры ==========
 
 def _parse_cpu(s):
     if not s: return 0.0

@@ -13,9 +13,9 @@ from CTFd.models import db
 from .dvp_client import dvp_client
 from .models import DVPEnvironment
 from .utils.subdomain import generate_subdomain
-from .utils.cache import get_redis
 from .utils.cache import get_redis, acquire_lock, release_lock
-from .resources import get_chart_resources, can_launch, get_nodes_resources
+from .resources import get_chart_resources, can_launch, get_limits_for_strategy, suspend_lower_priority
+from . import resources as res_module
 from .decorators import admin_required
 
 
@@ -57,7 +57,6 @@ def load_routes(app):
                 existing.expires_at = int(time.time())
                 db.session.commit()
         
-        # === Блокировка + проверка ресурсов ===
         if not acquire_lock():
             return jsonify({"error": "Слишком много запросов, попробуйте позже"}), 429
         
@@ -68,11 +67,24 @@ def load_routes(app):
                 dvp_challenge.chart_path
             )
             
-            ok, result = can_launch(
-                res["cpu_per_vm"], res["ram_per_vm"], res["disk_per_vm"], res["vm_count"],
-                dvp_client._k8s,
-                scratch_gb=res["scratch_gb"]
+            strategy = dvp_challenge.strategy or "regular"
+            cpu, ram, disk, min_cpu, min_ram, min_disk = get_limits_for_strategy(
+                strategy, res["cpu_per_vm"], res["ram_per_vm"], res["disk_per_vm"]
             )
+            
+            old_min = (res_module.MIN_FREE_CPU, res_module.MIN_FREE_RAM, res_module.MIN_FREE_DISK)
+            res_module.MIN_FREE_CPU, res_module.MIN_FREE_RAM, res_module.MIN_FREE_DISK = min_cpu, min_ram, min_disk
+            
+            ok, result = can_launch(cpu, ram, disk, res["vm_count"], dvp_client._k8s, res["scratch_gb"])
+            
+            if not ok and strategy != "selfstudy":
+                suspended = suspend_lower_priority(strategy)
+                if suspended:
+                    res_module._cache_time = 0
+                    ok, result = can_launch(cpu, ram, disk, res["vm_count"], dvp_client._k8s, res["scratch_gb"])
+            
+            res_module.MIN_FREE_CPU, res_module.MIN_FREE_RAM, res_module.MIN_FREE_DISK = old_min
+            
             if not ok:
                 return jsonify({"error": result}), 503
             
@@ -267,6 +279,19 @@ def load_routes(app):
             "time_remaining": remaining
         })
     
+    @app.route("/api/v1/dvp/resources", methods=["GET"])
+    @admin_required
+    def get_resources():
+        nodes = res_module.get_nodes_resources(dvp_client._k8s)
+        return jsonify({
+            "nodes": nodes,
+            "total": {
+                "cpu": sum(n["cpu"] for n in nodes),
+                "ram_gb": sum(n["ram_gb"] for n in nodes),
+                "disk_gb": sum(n["disk_gb"] for n in nodes)
+            }
+        })
+    
     @app.route("/api/v1/dvp/mock/status", methods=["GET"])
     def get_mock_status():
         return jsonify({
@@ -334,7 +359,6 @@ def load_routes(app):
     @app.route("/api/v1/dvp/admin/environments/<int:env_id>/delete", methods=["POST"])
     @admin_required
     def admin_delete_environment(env_id):
-        """Полное удаление записи об окружении из БД."""
         env = DVPEnvironment.query.get(env_id)
         if not env:
             return jsonify({"error": "Environment not found"}), 404
@@ -347,3 +371,29 @@ def load_routes(app):
             r.delete(f"dvp:env:{env.user_id}:{env.challenge_id}")
         
         return jsonify({"status": "deleted"})
+    
+    @app.route("/api/v1/dvp/admin/environments/<int:env_id>/suspend", methods=["POST"])
+    @admin_required
+    def admin_suspend_environment(env_id):
+        env = DVPEnvironment.query.get(env_id)
+        if not env:
+            return jsonify({"error": "Environment not found"}), 404
+        
+        dvp_client.pause_vms(env.project_name)
+        env.status = "suspended"
+        db.session.commit()
+        
+        return jsonify({"status": "suspended"})
+
+    @app.route("/api/v1/dvp/admin/environments/<int:env_id>/resume", methods=["POST"])
+    @admin_required
+    def admin_resume_environment(env_id):
+        env = DVPEnvironment.query.get(env_id)
+        if not env:
+            return jsonify({"error": "Environment not found"}), 404
+        
+        dvp_client.resume_vms(env.project_name)
+        env.status = "active"
+        db.session.commit()
+        
+        return jsonify({"status": "active"})

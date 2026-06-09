@@ -8,7 +8,7 @@ from flask import render_template, jsonify, request
 from CTFd.utils.decorators import admins_only
 from CTFd.models import db, Users, Challenges
 
-from ..models import DVPEnvironment
+from ..models import DVPEnvironment, DVPChallengeModel
 from ..dvp_client import dvp_client
 
 
@@ -26,6 +26,16 @@ def load_admin_routes(admin_bp):
             
             created_str = datetime.datetime.fromtimestamp(env.created_at).strftime("%Y-%m-%d %H:%M:%S")
             expires_str = datetime.datetime.fromtimestamp(env.expires_at).strftime("%Y-%m-%d %H:%M:%S")
+            
+            dvp_challenge = DVPChallengeModel.query.get(env.challenge_id)
+            strategy = dvp_challenge.strategy if dvp_challenge else "regular"
+            
+            if env.status == "terminated":
+                status_text = "Завершено"
+            elif env.status == "suspended":
+                status_text = "Приостановлено"
+            else:
+                status_text = "Активно"
 
             enriched.append({
                 "id": env.id,
@@ -36,7 +46,8 @@ def load_admin_routes(admin_bp):
                 "project_name": env.project_name,
                 "subdomain": env.subdomain,
                 "check_status": env.check_status or "pending",
-                "status": "Завершено" if env.status == "terminated" else "Активно",
+                "status": status_text,
+                "strategy": strategy,
                 "created_at": created_str,
                 "expires_at": expires_str,
                 "time_remaining": max(0, env.expires_at - int(time.time())) if env.status != "terminated" else 0

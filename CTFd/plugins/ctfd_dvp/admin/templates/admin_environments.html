@@ -19,6 +19,7 @@
                         <th>Пользователь</th>
                         <th>Задача</th>
                         <th>Проект</th>
+                        <th>Стратегия</th>
                         <th>Проверка</th>
                         <th>Статус</th>
                         <th>Создано</th>
@@ -34,6 +35,7 @@
                         <td>{{ env.user_name }}</td>
                         <td>{{ env.challenge_name }}</td>
                         <td><code>{{ env.project_name }}</code></td>
+                        <td>{{ env.strategy }}</td>
                         <td>
                             {% if env.check_status == 'success' %}
                                 ✅
@@ -55,8 +57,12 @@
                         </td>
                         <td>
                             {% if env.status == 'Активно' %}
+                            <button class="btn btn-sm btn-warning suspend-btn" data-id="{{ env.id }}">Приостановить</button>
                             <button class="btn btn-sm btn-success extend-btn" data-id="{{ env.id }}">+30 мин</button>
                             <button class="btn btn-sm btn-danger terminate-btn" data-id="{{ env.id }}">Завершить</button>
+                            {% elif env.status == 'Приостановлено' %}
+                            <button class="btn btn-sm btn-info resume-btn" data-id="{{ env.id }}">Возобновить</button>
+                            <button class="btn btn-sm btn-dark delete-btn" data-id="{{ env.id }}">🗑 Удалить</button>
                             {% else %}
                             <button class="btn btn-sm btn-dark delete-btn" data-id="{{ env.id }}">🗑 Удалить</button>
                             {% endif %}
@@ -64,7 +70,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="10" class="text-center">Нет окружений</td>
+                        <td colspan="11" class="text-center">Нет окружений</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -105,70 +111,64 @@
 </div>
 
 <script>
-// Terminate
 document.querySelectorAll('.terminate-btn').forEach(btn => {
     btn.addEventListener('click', async function() {
-        if (!confirm('Terminate this environment?')) return;
-        
+        if (!confirm('Завершить это окружение?')) return;
         const id = this.dataset.id;
         const response = await fetch(`/api/v1/dvp/admin/environments/${id}/terminate`, {
             method: 'POST',
-            headers: {
-                'CSRF-Token': CTFd.config.csrfNonce,
-                'Content-Type': 'application/json'
-            }
+            headers: {'CSRF-Token': CTFd.config.csrfNonce, 'Content-Type': 'application/json'}
         });
-        
-        if (response.ok) {
-            location.reload();
-        } else {
-            alert('Failed to terminate');
-        }
+        if (response.ok) location.reload(); else alert('Failed to terminate');
     });
 });
 
-// Extend
 document.querySelectorAll('.extend-btn').forEach(btn => {
     btn.addEventListener('click', async function() {
-        if (!confirm('Extend this environment by 30 minutes?')) return;
-        
+        if (!confirm('Расширить время для этого окружения на 30 минут?')) return;
         const id = this.dataset.id;
         const response = await fetch(`/api/v1/dvp/admin/environments/${id}/extend`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'CSRF-Token': CTFd.config.csrfNonce
-            },
+            headers: {'Content-Type': 'application/json', 'CSRF-Token': CTFd.config.csrfNonce},
             body: JSON.stringify({ extend_by: 1800 })
         });
-        
-        if (response.ok) {
-            location.reload();
-        } else {
-            alert('Failed to extend');
-        }
+        if (response.ok) location.reload(); else alert('Failed to extend');
     });
 });
 
-// Delete (полное удаление записи)
 document.querySelectorAll('.delete-btn').forEach(btn => {
     btn.addEventListener('click', async function() {
-        if (!confirm('Permanently delete this record? This cannot be undone.')) return;
-        
+        if (!confirm('Навсегда удалить эту запись?')) return;
         const id = this.dataset.id;
         const response = await fetch(`/api/v1/dvp/admin/environments/${id}/delete`, {
             method: 'POST',
-            headers: {
-                'CSRF-Token': CTFd.config.csrfNonce,
-                'Content-Type': 'application/json'
-            }
+            headers: {'CSRF-Token': CTFd.config.csrfNonce, 'Content-Type': 'application/json'}
         });
-        
-        if (response.ok) {
-            location.reload();
-        } else {
-            alert('Failed to delete');
-        }
+        if (response.ok) location.reload(); else alert('Failed to delete');
+    });
+});
+
+document.querySelectorAll('.suspend-btn').forEach(btn => {
+    btn.addEventListener('click', async function() {
+        if (!confirm('Приостановить это окружение?')) return;
+        const id = this.dataset.id;
+        const response = await fetch(`/api/v1/dvp/admin/environments/${id}/suspend`, {
+            method: 'POST',
+            headers: {'CSRF-Token': CTFd.config.csrfNonce, 'Content-Type': 'application/json'}
+        });
+        if (response.ok) location.reload(); else alert('Failed to suspend');
+    });
+});
+
+document.querySelectorAll('.resume-btn').forEach(btn => {
+    btn.addEventListener('click', async function() {
+        if (!confirm('Возобновить это окружение?')) return;
+        const id = this.dataset.id;
+        const response = await fetch(`/api/v1/dvp/admin/environments/${id}/resume`, {
+            method: 'POST',
+            headers: {'CSRF-Token': CTFd.config.csrfNonce, 'Content-Type': 'application/json'}
+        });
+        if (response.ok) location.reload(); else alert('Failed to resume');
     });
 });
 </script>
