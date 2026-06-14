@@ -111,9 +111,10 @@ def get_limits_for_strategy(strategy, cpu_per_vm, ram_per_vm, disk_per_vm):
     return cpu_per_vm, ram_per_vm, disk_per_vm, MIN_FREE_CPU, MIN_FREE_RAM, MIN_FREE_DISK
 
 
-def suspend_lower_priority(strategy):
+def suspend_lower_priority(strategy, needed_cpu, needed_ram, needed_disk, k8s_client):
     """
-    Приостанавливает окружения с более низким приоритетом.
+    Приостанавливает низкоприоритетные окружения по одному,
+    пока не освободится достаточно ресурсов.
     Competition > Regular > SelfStudy
     """
     priority = {"competition": 3, "regular": 2, "selfstudy": 1}
@@ -121,7 +122,7 @@ def suspend_lower_priority(strategy):
     from .models import DVPEnvironment, DVPChallengeModel
     from .dvp_client import dvp_client
     
-    active_envs = DVPEnvironment.query.filter_by(status="active").all()
+    active_envs = DVPEnvironment.query.filter_by(status="active").order_by(DVPEnvironment.created_at.asc()).all()
     suspended = []
     
     for env in active_envs:
@@ -131,14 +132,22 @@ def suspend_lower_priority(strategy):
         
         env_priority = priority.get(challenge.strategy, 1)
         
-        if env_priority < priority[strategy]:
-            dvp_client.pause_vms(env.project_name)
-            env.status = "suspended"
-            suspended.append(env.project_name)
-    
-    if suspended:
+        if env_priority >= priority[strategy]:
+            continue
+        
+        dvp_client.pause_vms(env.project_name)
+        env.status = "suspended"
+        suspended.append(env.project_name)
+        
         from CTFd.models import db
         db.session.commit()
+        
+        global _cache_time
+        _cache_time = 0
+        
+        ok, _ = can_launch(needed_cpu, needed_ram, needed_disk, 1, k8s_client, 0)
+        if ok:
+            break
     
     return suspended
 

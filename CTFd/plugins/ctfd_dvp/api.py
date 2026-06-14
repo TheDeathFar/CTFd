@@ -78,9 +78,10 @@ def load_routes(app):
             ok, result = can_launch(cpu, ram, disk, res["vm_count"], dvp_client._k8s, res["scratch_gb"])
             
             if not ok and strategy != "selfstudy":
-                suspended = suspend_lower_priority(strategy)
+                suspended = suspend_lower_priority(
+                    strategy, cpu, ram, disk, dvp_client._k8s
+                )
                 if suspended:
-                    res_module._cache_time = 0
                     ok, result = can_launch(cpu, ram, disk, res["vm_count"], dvp_client._k8s, res["scratch_gb"])
             
             res_module.MIN_FREE_CPU, res_module.MIN_FREE_RAM, res_module.MIN_FREE_DISK = old_min
